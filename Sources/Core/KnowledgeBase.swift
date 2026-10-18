@@ -215,4 +215,38 @@ let appleLibraryNames: Set<String> = [
     "PersonalizationPortrait", "AssetCache", "audiomxd", "akd", "Biome", "DuetExpertCenter", "Logs", "DiagnosticReports",
     "CoreSpeech", "Address Book Plug-Ins", "Fonts", "Sounds", "LanguageModeling", "ColorSync", "Keychains", "Autosave Information",
     "Cookies", "HTTPStorages", "WebKit", "Saved Application State", "AppleIntelligencePlatform", "ModelCatalog", "Trial",
+    "Logic", "GarageBand", "iLifeMediaBrowser", "Script Editor", "ByHost", "SystemConfiguration", "BTServer", "Audio",
+    "OpenDirectory", "DiscRecording", "Logging", "App Store", "ControlCenter", "FamilyCircle", "SiriTTSService", "Xsan",
+    "PhotosSearch.aapbz", "PhotosUpgrade.aapbz", "Desktop Pictures", "Assistant", "is.workflow.my.app", "icloudmailagent",
+    "TVRemoteAudio.driver", "iMovie", "Keynote", "Pages", "Numbers", "MobileDevice", "AirPlay", "Bluetooth",
+    // Third-party drivers that macOS itself installs into /Library/Extensions.
+    "SoftRAID.kext", "HighPointRR.kext", "HighPointIOP.kext", "ATTOCelerityFC8.kext", "ATTOExpressSASHBA2.kext",
+    "ATTOExpressSASRAID2.kext", "ArcMSR.kext", "CalDigitHDSD.kext", "PromiseSTEX.kext", "ACS6x.kext", "ATTOExpressSASHBA3.kext",
 ]
+
+/// Library entries whose name starts with one of these belong to the given owner.
+let libraryPrefixAliases: [(prefix: String, alias: LibAlias)] = [
+    ("org.cups.", LibAlias(owner: "macOS 打印系统")),
+    ("jetbrains.iu.", LibAlias(owner: "IntelliJ IDEA", apps: ["com.jetbrains.intellij"])),
+    ("jetbrains.jetprofile", LibAlias(owner: "JetBrains IDE", apps: ["jetbrains", "intellij"])),
+    ("com.jetbrains.cefserver", LibAlias(owner: "JetBrains IDE", apps: ["jetbrains", "intellij"])),
+    ("org.jcef.jcef", LibAlias(owner: "JetBrains IDE", apps: ["jetbrains", "intellij"])),
+    ("jetbrains.vmoptions", LibAlias(owner: "JetBrains IDE（第三方激活工具）", apps: ["jetbrains", "intellij"])),
+    ("jetbrains.db.", LibAlias(owner: "DataGrip", apps: ["datagrip"])),
+    ("com.jetbrains.datagrip", LibAlias(owner: "DataGrip", apps: ["datagrip"])),
+    ("com.jetbrains.goland", LibAlias(owner: "GoLand", apps: ["goland"])),
+    ("com.electron.dockerdesktop", LibAlias(owner: "Docker", apps: ["com.docker.docker"])),
+    ("com.ebus.lark", LibAlias(owner: "飞书", apps: ["com.electron.lark"])),
+    ("com.prect.navicat", LibAlias(owner: "Navicat", apps: ["navicat"])),
+    ("codex-runtimes", LibAlias(owner: "Codex", apps: ["codex", "cursor"], commands: ["codex"])),
+    ("github-copilot", LibAlias(owner: "GitHub Copilot（编辑器插件）", apps: ["cursor", "visual studio code", "intellij"])),
+    ("com.tencent.rqd", LibAlias(owner: "腾讯系应用内置的崩溃上报 SDK")),
+    ("com.tencent.bugly", LibAlias(owner: "腾讯系应用内置的崩溃上报 SDK")),
+    ("com.tencent.tds.bugly", LibAlias(owner: "腾讯系应用内置的崩溃上报 SDK")),
+    ("com.tencent.fireeye", LibAlias(owner: "腾讯系应用内置的崩溃上报 SDK")),
+]
+
+func libraryAlias(for id: String) -> LibAlias? {
+    let lower = id.lowercased()
+    return libraryAliases[lower] ?? libraryPrefixAliases.first { lower.hasPrefix($0.prefix) }?.alias
+}

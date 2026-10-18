@@ -18,5 +18,5 @@ EOF
 fi
 
 swiftc -O -swift-version 5 -target arm64-apple-macos14.0 "${EXTRA_FLAGS[@]}" \
-  -module-cache-path build/ModuleCache Sources/*.swift -o build/mactidy
+  -module-cache-path build/ModuleCache Sources/Core/*.swift Sources/CLI/*.swift -o build/mactidy
 echo "已生成: $PWD/build/mactidy"
