@@ -66,10 +66,17 @@ struct ShelfRow: View {
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            if model.isUnused(shelf) { Tag("没用过") }
+            if let tag = unusedTag { Tag(tag) }
             Text(Fmt.size(shelf.size)).monospacedDigit().foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+
+    private var unusedTag: String? {
+        guard CatalogReport.isCollection(shelf) else { return shelf.usedSinceArrival == false ? "没用过" : nil }
+        let (unused, total) = model.unusedCount(shelf)
+        if unused == 0 { return nil }
+        return unused == total ? "没用过" : "\(unused) 项没用过"
     }
 
     private var subtitle: String {
@@ -139,8 +146,8 @@ struct ShelfDetail: View {
 
     private var usedText: String {
         if CatalogReport.isCollection(shelf) {
-            let unused = shelf.books.filter { !$0.nested && model.used($0) == false }.count
-            return unused == 0 ? "都用过" : "\(unused) 项没用过"
+            let (unused, total) = model.unusedCount(shelf)
+            return unused == 0 ? "都用过" : unused == total ? "都没用过" : "\(unused) 项没用过"
         }
         switch shelf.usedSinceArrival {
         case true?: return "用过"

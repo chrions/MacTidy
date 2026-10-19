@@ -92,6 +92,12 @@ final class AppModel {
         return a >= t
     }
 
+    /// For collections: how many of the (non-nested) books haven't been used since arriving.
+    func unusedCount(_ shelf: Shelf) -> (unused: Int, total: Int) {
+        let books = shelf.books.filter { !$0.nested }
+        return (books.filter { used($0) == false }.count, books.count)
+    }
+
     func isUnused(_ shelf: Shelf) -> Bool {
         CatalogReport.isCollection(shelf) ? shelf.books.contains { !$0.nested && used($0) == false } : shelf.usedSinceArrival == false
     }
