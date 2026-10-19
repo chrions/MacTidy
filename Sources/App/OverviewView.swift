@@ -166,7 +166,7 @@ struct EraTimeline: View {
                             Text(e.name).font(.callout.weight(.medium))
                             if e.isCurrent { Tag("现在") }
                         }
-                        Text(e.start.map { "\(Fmt.month($0)) 起" } ?? "第一台 Mac 之前").font(.caption).foregroundStyle(.secondary)
+                        Text(e.start.map { "\(Fmt.month($0)) 起" } ?? e.end.map { "\(Fmt.month($0)) 以前" } ?? "第一台 Mac 之前").font(.caption).foregroundStyle(.secondary)
                         Text("\(list.count) 样 · \(Fmt.size(sizes[i]))").font(.caption).monospacedDigit()
                         if !e.isCurrent, !unused.isEmpty {
                             Text("没用过 \(unused.count) 样 · \(Fmt.size(unused.map(\.size).reduce(0, +)))")

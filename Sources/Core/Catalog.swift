@@ -172,6 +172,17 @@ enum Eras {
         [sysctlString("hw.model"), sysctlString("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: "，")
     }
 
+    /// Re-applies user-given names, which may have been set after the catalog was scanned.
+    static func named(_ eras: [Era]) -> [Era] {
+        let names = loadNames()
+        return eras.map { era in
+            var era = era
+            if let id = era.machineID, let name = names[id] { era.name = name }
+            if era.index == 0 { era.name = "更早" }
+            return era
+        }
+    }
+
     /// User-given names, e.g. `{"<UUID>": "Intel MacBook Pro"}` in ~/Library/Application Support/MacTidy/eras.json.
     private static func loadNames() -> [String: String] {
         let path = fm.homeDirectoryForCurrentUser.path + "/Library/Application Support/MacTidy/eras.json"

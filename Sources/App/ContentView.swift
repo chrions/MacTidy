@@ -7,7 +7,7 @@ struct ContentView: View {
         @Bindable var model = model
         NavigationSplitView {
             Sidebar()
-                .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 280)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 230, max: 300)
         } detail: {
             Group {
                 if model.catalog == nil {
@@ -27,6 +27,7 @@ struct ContentView: View {
         .toolbar { Toolbar() }
         .tint(.primary)
         .onChange(of: model.sidebar) { model.focusedBook = nil }
+        .task { await Snapshot.runIfRequested(model) }
     }
 }
 
@@ -34,24 +35,45 @@ private struct Sidebar: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        @Bindable var model = model
-        List(selection: $model.sidebar) {
-            Label("概览", systemImage: "square.grid.2x2").tag(SidebarItem.overview)
+        List {
+            SidebarRow(item: .overview, title: "概览", symbol: "square.grid.2x2", size: nil)
             SwiftUI.Section("目录") {
                 ForEach(Category.allCases, id: \.self) { c in
-                    HStack {
-                        Label(c.rawValue, systemImage: c.symbol)
-                        Spacer()
-                        if model.catalog != nil {
-                            Text(Fmt.size(model.size(of: c))).font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(SidebarItem.category(c))
+                    SidebarRow(item: .category(c), title: c.rawValue, symbol: c.symbol,
+                               size: model.catalog == nil ? nil : model.size(of: c))
                 }
             }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) { ScanStatus().padding(12) }
+    }
+}
+
+/// The system sidebar selection always uses the accent color; draw a neutral one instead.
+private struct SidebarRow: View {
+    @Environment(AppModel.self) private var model
+    let item: SidebarItem
+    let title: String
+    let symbol: String
+    let size: Int64?
+
+    var body: some View {
+        let selected = model.sidebar == item
+        HStack(spacing: 8) {
+            Image(systemName: symbol).frame(width: 18)
+            Text(title)
+            Spacer()
+            if let size {
+                Text(Fmt.size(size)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+        }
+        .fontWeight(selected ? .semibold : .regular)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(selected ? Color.primary.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { model.sidebar = item }
+        .listRowInsets(EdgeInsets(top: 1, leading: 2, bottom: 1, trailing: 2))
     }
 }
 

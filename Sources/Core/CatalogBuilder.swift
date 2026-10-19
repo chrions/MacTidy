@@ -121,7 +121,8 @@ final class CatalogBuilder {
 
     /// "Copyright © 2012-2024 Tencent. All Rights Reserved." → "Tencent"
     private func vendorName(_ copyright: String) -> String? {
-        var s = copyright.replacingOccurrences(of: #"(?i)copyright|©|\(c\)|all rights reserved\.?|版权所有|[0-9]{4}(\s*[-–]\s*[0-9]{4})?"#,
+        var s = copyright.replacingOccurrences(of: "\u{00A0}", with: " ")
+        s = s.replacingOccurrences(of: #"(?i)copyright|©|\(c\)|all rights reserved\.?|版权所有|[0-9]{4}(\s*[-–]\s*[0-9]{4})?"#,
                                                with: " ", options: .regularExpression)
         s = s.trimmingCharacters(in: CharacterSet(charactersIn: " .,，。").union(.whitespacesAndNewlines))
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)

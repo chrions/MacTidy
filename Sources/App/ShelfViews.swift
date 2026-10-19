@@ -6,7 +6,6 @@ struct CategoryBrowser: View {
     let category: Category?
 
     var body: some View {
-        @Bindable var model = model
         let shelves = model.shelves(in: category)
         HSplitView {
             VStack(alignment: .leading, spacing: 0) {
@@ -16,10 +15,15 @@ struct CategoryBrowser: View {
                     ContentUnavailableView("没有符合条件的东西", systemImage: "line.3.horizontal.decrease",
                                            description: Text("试试清除筛选条件"))
                 } else {
-                    List(selection: $model.selectedShelf) {
-                        ForEach(shelves) { s in
-                            ShelfRow(shelf: s).tag(s.id)
-                        }
+                    List(shelves) { s in
+                        ShelfRow(shelf: s)
+                            .padding(.horizontal, 8)
+                            .background(model.selectedShelf == s.id ? Color.primary.opacity(0.08) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                            .onTapGesture { model.selectedShelf = s.id }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
+                            .listRowSeparator(.hidden)
                     }
                     .listStyle(.inset)
                     .scrollContentBackground(.hidden)

@@ -46,6 +46,8 @@ final class AppModel {
     }
 
     private func set(_ catalog: Catalog) {
+        var catalog = catalog
+        catalog.eras = Eras.named(catalog.eras)
         self.catalog = catalog
         let report = CatalogReport(catalog: catalog, home: CatalogStore.home)
         self.report = report
