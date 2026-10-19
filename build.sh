@@ -1,4 +1,6 @@
 #!/bin/zsh
+# ./build.sh        编译命令行工具和应用，并把应用安装到「应用程序」后重新打开
+# ./build.sh cli    只编译命令行工具
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
@@ -16,7 +18,66 @@ if [[ -f "$CLT_SWIFT_INC/module.modulemap" && -f "$CLT_SWIFT_INC/bridging.module
 EOF
   EXTRA_FLAGS=(-vfsoverlay "$PWD/build/overlay.yaml")
 fi
+SWIFTC=(swiftc -O -swift-version 5 -target arm64-apple-macos14.0 "${EXTRA_FLAGS[@]}" -module-cache-path build/ModuleCache)
 
-swiftc -O -swift-version 5 -target arm64-apple-macos14.0 "${EXTRA_FLAGS[@]}" \
-  -module-cache-path build/ModuleCache Sources/Core/*.swift Sources/CLI/*.swift -o build/mactidy
+"${SWIFTC[@]}" Sources/Core/*.swift Sources/CLI/*.swift -o build/mactidy
 echo "已生成: $PWD/build/mactidy"
+[[ "${1:-}" == "cli" ]] && exit 0
+
+APP_NAME="MacTidy.app"
+APP="build/$APP_NAME"
+EXEC="MacTidy"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/Info.plist "$APP/Contents/Info.plist"
+
+if [[ ! -f Resources/AppIcon.icns || Tools/make_icon.swift -nt Resources/AppIcon.icns ]]; then
+  "${SWIFTC[@]}" Tools/make_icon.swift -o build/make_icon
+  build/make_icon build/icon_1024.png
+  ICONSET=build/AppIcon.iconset
+  rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+  for s in 16 32 128 256 512; do
+    sips -z $s $s build/icon_1024.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+    sips -z $((s * 2)) $((s * 2)) build/icon_1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o Resources/AppIcon.icns
+fi
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
+"${SWIFTC[@]}" -parse-as-library Sources/Core/*.swift Sources/App/*.swift -o "$APP/Contents/MacOS/$EXEC"
+
+# A stable self-signed identity keeps privacy grants (Full Disk Access) valid across rebuilds;
+# ad-hoc signatures change every build and silently invalidate them.
+SIGN_NAME="MacTidy Local Signing"
+signing_identity() { security find-identity -p codesigning | awk -v n="\"$SIGN_NAME\"" 'index($0, n) { print $2; exit }'; }
+if [[ -z "$(signing_identity)" ]]; then
+  TMP=$(mktemp -d)
+  cat > "$TMP/cfg" <<EOF
+[req]
+distinguished_name=dn
+prompt=no
+x509_extensions=ext
+[dn]
+CN=$SIGN_NAME
+[ext]
+basicConstraints=critical,CA:false
+keyUsage=critical,digitalSignature
+extendedKeyUsage=critical,codeSigning
+EOF
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$TMP/cfg" \
+    -keyout "$TMP/key.pem" -out "$TMP/cert.pem" 2>/dev/null
+  /usr/bin/openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -passout pass:tmp -out "$TMP/id.p12"
+  security import "$TMP/id.p12" -k ~/Library/Keychains/login.keychain-db -P tmp -T /usr/bin/codesign >/dev/null
+  rm -rf "$TMP"
+fi
+codesign --force --sign "$(signing_identity)" "$APP"
+echo "已生成: $PWD/$APP"
+
+if pkill -x "$EXEC"; then
+  for _ in {1..50}; do pgrep -x "$EXEC" >/dev/null || break; sleep 0.1; done
+fi
+rm -rf "/Applications/$APP_NAME"
+ditto "$APP" "/Applications/$APP_NAME"
+touch "/Applications/$APP_NAME"
+echo "已安装: /Applications/$APP_NAME"
+open "/Applications/$APP_NAME"

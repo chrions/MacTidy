@@ -133,7 +133,7 @@ enum Eras {
             machines.append((current, creationDate(home + "/Library") ?? Date()))
         }
         let names = loadNames()
-        var eras = [Era(index: 0, name: "第 1 台 Mac 之前", start: nil, end: machines.first?.start, machineID: nil, isCurrent: false)]
+        var eras = [Era(index: 0, name: "更早", start: nil, end: machines.first?.start, machineID: nil, isCurrent: false)]
         for (i, m) in machines.enumerated() {
             let isCurrent = m.id == current
             let fallback = isCurrent ? "现在这台（\(machineDescription())）" : "第 \(i + 1) 台 Mac"

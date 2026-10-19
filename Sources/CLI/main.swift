@@ -66,11 +66,8 @@ case "catalog":
     let report = CatalogReport(catalog: catalog, home: home)
     let mdPath = "\(outDir)/catalog-\(stamp).md"
     try report.markdown().write(toFile: mdPath, atomically: true, encoding: .utf8)
-    let data = try report.json()
-    try data.write(to: URL(fileURLWithPath: "\(outDir)/catalog-\(stamp).json"))
-    let store = home + "/Library/Application Support/MacTidy"
-    try FileManager.default.createDirectory(atPath: store, withIntermediateDirectories: true)
-    try data.write(to: URL(fileURLWithPath: store + "/catalog.json"))
+    try report.json().write(to: URL(fileURLWithPath: "\(outDir)/catalog-\(stamp).json"))
+    try CatalogStore.save(catalog)
     print(report.summary())
     print("\n完整目录：\(mdPath)")
 

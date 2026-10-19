@@ -33,6 +33,8 @@ struct CatalogReport {
 
     /// Something the user would think of as one thing: an app's shelf, or a single book on a collection shelf.
     struct Unit {
+        var shelfID: String
+        var bookPath: String?
         var category: Category
         var title: String
         var size: Int64
@@ -50,10 +52,12 @@ struct CatalogReport {
         let threshold = arrival?.addingTimeInterval(86_400)
         return catalog.shelves.filter { $0.category != .system }.flatMap { s -> [Unit] in
             guard CatalogReport.isCollection(s) else {
-                return [Unit(category: s.category, title: s.title, size: s.size, era: s.era, lastActive: s.lastActive, used: s.usedSinceArrival)]
+                return [Unit(shelfID: s.id, category: s.category, title: s.title, size: s.size, era: s.era,
+                             lastActive: s.lastActive, used: s.usedSinceArrival)]
             }
             return s.books.filter { !$0.nested }.map { b in
-                Unit(category: s.category, title: "\(s.title)：\(abbreviate(b.path, home: home))", size: b.size ?? 0, era: b.era,
+                Unit(shelfID: s.id, bookPath: b.path, category: s.category, title: "\(s.title)：\(abbreviate(b.path, home: home))",
+                     size: b.size ?? 0, era: b.era,
                      lastActive: b.activity, used: b.idle ? false : zip2(b.activity, threshold).map { $0 >= $1 })
             }
         }
@@ -156,9 +160,6 @@ struct CatalogReport {
     }
 
     func json() throws -> Data {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        enc.dateEncodingStrategy = .iso8601
-        return try enc.encode(catalog)
+        try CatalogStore.encode(catalog)
     }
 }
