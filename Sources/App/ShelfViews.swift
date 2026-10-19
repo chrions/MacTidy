@@ -100,6 +100,8 @@ struct ShelfDetail: View {
                         Text(shelf.summary).foregroundStyle(.secondary)
                     }
 
+                    TrashShelfButton(shelf: shelf)
+
                     HStack(alignment: .top, spacing: 16) {
                         Fact(label: "大小", value: Fmt.size(shelf.size))
                         if shelf.category != .system {
@@ -124,7 +126,7 @@ struct ShelfDetail: View {
                         VStack(spacing: 0) {
                             ForEach(Array(books.enumerated()), id: \.element.path) { i, b in
                                 if i > 0 { Divider() }
-                                BookRow(book: b, showEra: shelf.category != .system, highlighted: model.focusedBook == b.path)
+                                BookRow(book: b, shelf: shelf, highlighted: model.focusedBook == b.path)
                                     .id(b.path)
                             }
                         }
@@ -157,14 +159,42 @@ struct ShelfDetail: View {
     }
 }
 
+/// Collections offer to clear out what hasn't been used; other shelves go as a whole.
+private struct TrashShelfButton: View {
+    @Environment(AppModel.self) private var model
+    let shelf: Shelf
+
+    var body: some View {
+        if shelf.category != .system {
+            let collection = CatalogReport.isCollection(shelf)
+            let books = model.trashable(shelf, onlyUnused: collection)
+            let total = Trash.outermost(collection ? shelf.books.filter { !$0.nested && model.used($0) == false } : shelf.books).count
+            if !books.isEmpty {
+                HStack(spacing: 10) {
+                    Button(role: .destructive) { model.requestTrash(books, in: shelf) } label: {
+                        Label(collection ? "把没用过的 \(books.count) 项移到废纸篓" : "全部移到废纸篓", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    if books.count < total {
+                        Text("另有 \(total - books.count) 处不能从这里扔，会留着").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct BookRow: View {
     @Environment(AppModel.self) private var model
     let book: Book
-    let showEra: Bool
+    let shelf: Shelf
     var highlighted = false
     @State private var hover = false
 
+    private var showEra: Bool { shelf.category != .system }
+
     var body: some View {
+        let refusal = model.trashRefusal(book, in: shelf)
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -190,11 +220,28 @@ struct BookRow: View {
             .foregroundStyle(.secondary)
             .opacity(hover ? 1 : 0.35)
             .help("在访达中显示")
+            if showEra {
+                Button { model.requestTrash([book], in: shelf) } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .opacity(refusal != nil ? 0.15 : (hover ? 1 : 0.35))
+                .disabled(refusal != nil)
+                .help(refusal ?? "移到废纸篓")
+            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 6).fill(.primary.opacity(highlighted ? 0.07 : (hover ? 0.035 : 0))))
         .onHover { hover = $0 }
+        .contextMenu {
+            Button("在访达中显示") { model.reveal(book.path) }
+            if showEra {
+                Divider()
+                Button("移到废纸篓") { model.requestTrash([book], in: shelf) }.disabled(refusal != nil)
+            }
+        }
     }
 
     private var meta: String {

@@ -27,7 +27,83 @@ struct ContentView: View {
         .toolbar { Toolbar() }
         .tint(.primary)
         .onChange(of: model.sidebar) { model.focusedBook = nil }
+        .alert(trashTitle, isPresented: Binding(get: { model.trashRequest != nil }, set: { if !$0 { model.trashRequest = nil } }),
+               presenting: model.trashRequest) { request in
+            if request.blocked == nil {
+                Button("移到废纸篓", role: .destructive) { model.confirmTrash() }
+                Button("取消", role: .cancel) {}
+            } else {
+                Button("好", role: .cancel) {}
+            }
+        } message: { request in
+            Text(trashMessage(request))
+        }
+        .overlay(alignment: .bottom) {
+            if let outcome = model.trashOutcome {
+                TrashBar(outcome: outcome).padding(16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.trashOutcome == nil)
         .task { await Snapshot.runIfRequested(model) }
+    }
+}
+
+extension ContentView {
+    private var trashTitle: String {
+        guard let r = model.trashRequest else { return "" }
+        if r.blocked != nil { return "现在还不能扔" }
+        return r.books.count == 1 ? "把「\((r.books[0].path as NSString).lastPathComponent)」移到废纸篓？"
+            : "把「\(r.shelf.title)」的 \(r.books.count) 项移到废纸篓？"
+    }
+
+    private func trashMessage(_ r: AppModel.TrashRequest) -> String {
+        if let blocked = r.blocked { return blocked }
+        var lines = ["共 \(Fmt.size(r.size))。在废纸篓清倒之前随时可以放回原处。"]
+        lines += r.warnings
+        let paths = r.books.prefix(6).map { Fmt.path($0.path) }
+        lines.append("\n" + paths.joined(separator: "\n") + (r.books.count > 6 ? "\n…等 \(r.books.count) 项" : ""))
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// Result of the last move to the Trash, with a way to take it back.
+private struct TrashBar: View {
+    @Environment(AppModel.self) private var model
+    let outcome: AppModel.TrashOutcome
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: outcome.failed.isEmpty ? "trash" : "exclamationmark.triangle")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headline).font(.callout.weight(.medium))
+                ForEach(outcome.failed.prefix(3), id: \.path) { f in
+                    Text("\(Fmt.path(f.path))：\(f.reason)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 20)
+            if !outcome.moved.isEmpty {
+                Button("撤销") { model.undoTrash() }
+                Button("打开废纸篓") { model.openTrash() }
+            }
+            Button { model.trashOutcome = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 640)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+
+    private var headline: String {
+        let size = outcome.moved.compactMap(\.size).reduce(0, +)
+        let moved = outcome.moved.isEmpty ? "" : "已移到废纸篓 \(outcome.moved.count) 项 · \(Fmt.size(size))"
+        if outcome.failed.isEmpty { return moved }
+        let failed = outcome.undone ? "\(outcome.failed.count) 项没能放回" : "\(outcome.failed.count) 项没能移走"
+        return moved.isEmpty ? failed : "\(moved)，\(failed)"
     }
 }
 

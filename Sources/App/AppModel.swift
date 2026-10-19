@@ -146,4 +146,89 @@ final class AppModel {
     func reveal(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
+
+    // MARK: Trash
+
+    struct TrashRequest: Identifiable {
+        let id = UUID()
+        let shelf: Shelf
+        let books: [Book]
+        /// Set when the move must not happen yet, e.g. the app is still running.
+        let blocked: String?
+        let warnings: [String]
+        var size: Int64 { books.filter { !$0.nested }.compactMap(\.size).reduce(0, +) }
+    }
+
+    struct TrashOutcome {
+        let moved: [TrashRecord]
+        let failed: [(path: String, reason: String)]
+        let before: Catalog
+        var undone = false
+    }
+
+    var trashRequest: TrashRequest?
+    var trashOutcome: TrashOutcome?
+
+    func trashRefusal(_ book: Book, in shelf: Shelf) -> String? { Trash.refusal(book, in: shelf) }
+
+    /// Books on the shelf that could go, optionally only the ones unused since arriving.
+    func trashable(_ shelf: Shelf, onlyUnused: Bool) -> [Book] {
+        Trash.outermost(shelf.books.filter { b in
+            trashRefusal(b, in: shelf) == nil && (!onlyUnused || (!b.nested && used(b) == false))
+        })
+    }
+
+    func requestTrash(_ books: [Book], in shelf: Shelf) {
+        let books = Trash.outermost(books)
+        guard !books.isEmpty else { return }
+        let running = NSWorkspace.shared.runningApplications.compactMap { app -> String? in
+            guard let path = app.bundleURL?.path,
+                  books.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) else { return nil }
+            return app.localizedName ?? (path as NSString).lastPathComponent
+        }
+        var warnings = [String]()
+        if books.contains(where: { $0.kind == .program && $0.path.hasSuffix(".app") }) {
+            warnings.append("包含应用本体，相当于卸载这个应用。")
+        }
+        let usedCount = books.filter { used($0) == true }.count
+        if usedCount > 0 { warnings.append("其中 \(usedCount) 项搬到这台 Mac 后还用过。") }
+        if books.contains(where: { $0.kind == .secret }) {
+            warnings.append("包含密钥或凭据，扔掉后可能登录不了对应的服务器或服务。")
+        }
+        if books.contains(where: { $0.kind == .config || $0.kind == .toolchain || $0.kind == .command }) {
+            warnings.append("包含配置或命令，相关工具可能会报错。")
+        }
+        let blocked = running.isEmpty ? nil : "\(running.joined(separator: "、")) 正在运行，请先退出再扔。"
+        trashRequest = TrashRequest(shelf: shelf, books: books, blocked: blocked, warnings: warnings)
+    }
+
+    func confirmTrash() {
+        guard let request = trashRequest, request.blocked == nil, let before = catalog else { return }
+        trashRequest = nil
+        let result = Trash.move(request.books, shelf: request.shelf.title)
+        trashOutcome = TrashOutcome(moved: result.moved, failed: result.failed, before: before)
+        guard !result.moved.isEmpty else { return }
+        let updated = before.removing(result.moved.map(\.path))
+        set(updated)
+        try? CatalogStore.save(updated)
+    }
+
+    func undoTrash() {
+        guard var outcome = trashOutcome, !outcome.undone else { return }
+        let failed = Trash.restore(outcome.moved)
+        let restored = outcome.moved.filter { r in !failed.contains { $0.path == r.path } }.map(\.path)
+        if let current = catalog, !restored.isEmpty {
+            var c = current
+            let keep = outcome.before.removing(outcome.moved.map(\.path).filter { !restored.contains($0) })
+            c.shelves = keep.shelves
+            set(c)
+            try? CatalogStore.save(c)
+        }
+        outcome.undone = true
+        trashOutcome = failed.isEmpty ? nil : TrashOutcome(moved: [], failed: failed, before: outcome.before, undone: true)
+    }
+
+    func openTrash() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: CatalogStore.home + "/.Trash"))
+    }
 }
