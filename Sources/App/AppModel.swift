@@ -5,6 +5,7 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case overview
     case category(Category)
+    case coldRoom
 }
 
 extension Category {
@@ -40,9 +41,13 @@ final class AppModel {
     let hasFullDiskAccess = (try? FileManager.default.contentsOfDirectory(atPath: CatalogStore.home + "/Library/Safari")) != nil
 
     private(set) var units: [CatalogReport.Unit] = []
+    private(set) var decisions = Decisions.load()
+    private(set) var coldBatches: [ColdBatch] = []
+    private(set) var trashed: [TrashRecord] = []
 
     init() {
         if let c = CatalogStore.load() { set(c) }
+        refreshShelves()
     }
 
     private func set(_ catalog: Catalog) {
@@ -53,6 +58,17 @@ final class AppModel {
         self.report = report
         units = report.units
         if shelf(selectedShelf) == nil { selectedShelf = nil }
+    }
+
+    /// Updates the catalog after files moved, and remembers it for the next launch.
+    private func commit(_ catalog: Catalog) {
+        set(catalog)
+        try? CatalogStore.save(catalog)
+    }
+
+    func refreshShelves() {
+        coldBatches = ColdStorage.batches()
+        trashed = Trash.inTrash()
     }
 
     func scan() {
@@ -69,6 +85,7 @@ final class AppModel {
                 return c
             }.value
             set(catalog)
+            refreshShelves()
             scanning = false
         }
     }
@@ -92,14 +109,27 @@ final class AppModel {
         return a >= t
     }
 
+    func isKept(_ shelf: Shelf) -> Bool { decisions.keptShelves.contains(shelf.id) }
+    func isKept(_ book: Book, in shelf: Shelf) -> Bool { isKept(shelf) || decisions.keptPaths.contains(book.path) }
+
+    /// Unused since arriving, and the user hasn't said to keep it.
+    func flaggedUnused(_ book: Book, in shelf: Shelf) -> Bool { used(book) == false && !isKept(book, in: shelf) }
+
+    func flaggedUnused(_ unit: CatalogReport.Unit) -> Bool {
+        guard unit.used == false, let s = shelf(unit.shelfID) else { return false }
+        if isKept(s) { return false }
+        return unit.bookPath.map { !decisions.keptPaths.contains($0) } ?? true
+    }
+
     /// For collections: how many of the (non-nested) books haven't been used since arriving.
     func unusedCount(_ shelf: Shelf) -> (unused: Int, total: Int) {
         let books = shelf.books.filter { !$0.nested }
-        return (books.filter { used($0) == false }.count, books.count)
+        return (books.filter { flaggedUnused($0, in: shelf) }.count, books.count)
     }
 
     func isUnused(_ shelf: Shelf) -> Bool {
-        CatalogReport.isCollection(shelf) ? shelf.books.contains { !$0.nested && used($0) == false } : shelf.usedSinceArrival == false
+        if isKept(shelf) { return false }
+        return CatalogReport.isCollection(shelf) ? unusedCount(shelf).unused > 0 : shelf.usedSinceArrival == false
     }
 
     func matchesEra(_ shelf: Shelf) -> Bool {
@@ -111,7 +141,7 @@ final class AppModel {
     func visibleBooks(_ shelf: Shelf) -> [Book] {
         guard CatalogReport.isCollection(shelf) else { return shelf.books }
         return shelf.books.filter { b in
-            (eraFilter == nil || b.era == eraFilter) && (!onlyUnused || used(b) == false)
+            (eraFilter == nil || b.era == eraFilter) && (!onlyUnused || flaggedUnused(b, in: shelf))
         }
     }
 
@@ -132,6 +162,8 @@ final class AppModel {
         catalog?.shelves.filter { $0.category == category }.map(\.size).reduce(0, +) ?? 0
     }
 
+    var coldSize: Int64 { coldBatches.map(\.size).reduce(0, +) }
+
     func shelf(_ id: String?) -> Shelf? {
         guard let id else { return nil }
         return catalog?.shelves.first { $0.id == id }
@@ -147,10 +179,35 @@ final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    // MARK: Trash
+    // MARK: Keep
 
-    struct TrashRequest: Identifiable {
+    func toggleKeep(_ shelf: Shelf) {
+        if decisions.keptShelves.remove(shelf.id) == nil { decisions.keptShelves.insert(shelf.id) }
+        decisions.save()
+    }
+
+    func toggleKeep(_ book: Book) {
+        if decisions.keptPaths.remove(book.path) == nil { decisions.keptPaths.insert(book.path) }
+        decisions.save()
+    }
+
+    func unkeep(shelfID: String? = nil, path: String? = nil) {
+        if let shelfID { decisions.keptShelves.remove(shelfID) }
+        if let path { decisions.keptPaths.remove(path) }
+        decisions.save()
+    }
+
+    // MARK: Moving things away
+
+    enum Action {
+        case trash, freeze
+        /// Deleting something already in cold storage.
+        case discard(ColdBatch)
+    }
+
+    struct PendingAction: Identifiable {
         let id = UUID()
+        let action: Action
         let shelf: Shelf
         let books: [Book]
         /// Set when the move must not happen yet, e.g. the app is still running.
@@ -159,76 +216,124 @@ final class AppModel {
         var size: Int64 { books.filter { !$0.nested }.compactMap(\.size).reduce(0, +) }
     }
 
-    struct TrashOutcome {
-        let moved: [TrashRecord]
+    struct Outcome {
+        enum Undo { case trash([TrashRecord]), freeze(ColdBatch) }
+        let message: String
         let failed: [(path: String, reason: String)]
-        let before: Catalog
-        var undone = false
+        let undo: Undo?
     }
 
-    var trashRequest: TrashRequest?
-    var trashOutcome: TrashOutcome?
+    var pending: PendingAction?
+    var outcome: Outcome?
 
-    func trashRefusal(_ book: Book, in shelf: Shelf) -> String? { Trash.refusal(book, in: shelf) }
+    func refusal(_ book: Book, in shelf: Shelf) -> String? { Trash.refusal(book, in: shelf) }
 
-    /// Books on the shelf that could go, optionally only the ones unused since arriving.
-    func trashable(_ shelf: Shelf, onlyUnused: Bool) -> [Book] {
+    /// Books on the shelf that could be moved, optionally only the ones flagged unused.
+    func movable(_ shelf: Shelf, onlyUnused: Bool) -> [Book] {
         Trash.outermost(shelf.books.filter { b in
-            trashRefusal(b, in: shelf) == nil && (!onlyUnused || (!b.nested && used(b) == false))
+            refusal(b, in: shelf) == nil && (!onlyUnused || (!b.nested && flaggedUnused(b, in: shelf)))
         })
     }
 
-    func requestTrash(_ books: [Book], in shelf: Shelf) {
+    func request(_ action: Action, _ books: [Book], in shelf: Shelf) {
         let books = Trash.outermost(books)
         guard !books.isEmpty else { return }
+        var warnings = [String]()
+        let isApp = books.contains { $0.kind == .program && $0.path.hasSuffix(".app") }
+        switch action {
+        case .trash:
+            if isApp { warnings.append("包含应用本体，相当于卸载这个应用。") }
+        case .freeze:
+            if isApp { warnings.append("应用会连同数据一起挪走，冷藏期间打不开；放回后照常使用。") }
+            if books.contains(where: { $0.kind == .launch || $0.kind == .helper }) {
+                warnings.append("包含开机服务或帮助程序，冷藏后相关功能会停用。")
+            }
+        case .discard(let batch):
+            if !batch.isStale { warnings.append("才冷藏了 \(batch.days) 天。") }
+        }
+        let usedCount = books.filter { used($0) == true }.count
+        if usedCount > 0 { warnings.append("其中 \(usedCount) 项搬到这台 Mac 后还用过。") }
+        if books.contains(where: { $0.kind == .secret }) {
+            warnings.append("包含密钥或凭据，挪走后可能登录不了对应的服务器或服务。")
+        }
+        if books.contains(where: { $0.kind == .config || $0.kind == .toolchain || $0.kind == .command }) {
+            warnings.append("包含配置或命令，相关工具可能会报错。")
+        }
+        pending = PendingAction(action: action, shelf: shelf, books: books, blocked: runningBlock(books), warnings: warnings)
+    }
+
+    private func runningBlock(_ books: [Book]) -> String? {
         let running = NSWorkspace.shared.runningApplications.compactMap { app -> String? in
             guard let path = app.bundleURL?.path,
                   books.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) else { return nil }
             return app.localizedName ?? (path as NSString).lastPathComponent
         }
-        var warnings = [String]()
-        if books.contains(where: { $0.kind == .program && $0.path.hasSuffix(".app") }) {
-            warnings.append("包含应用本体，相当于卸载这个应用。")
-        }
-        let usedCount = books.filter { used($0) == true }.count
-        if usedCount > 0 { warnings.append("其中 \(usedCount) 项搬到这台 Mac 后还用过。") }
-        if books.contains(where: { $0.kind == .secret }) {
-            warnings.append("包含密钥或凭据，扔掉后可能登录不了对应的服务器或服务。")
-        }
-        if books.contains(where: { $0.kind == .config || $0.kind == .toolchain || $0.kind == .command }) {
-            warnings.append("包含配置或命令，相关工具可能会报错。")
-        }
-        let blocked = running.isEmpty ? nil : "\(running.joined(separator: "、")) 正在运行，请先退出再扔。"
-        trashRequest = TrashRequest(shelf: shelf, books: books, blocked: blocked, warnings: warnings)
+        return running.isEmpty ? nil : "\(running.joined(separator: "、")) 正在运行，请先退出。"
     }
 
-    func confirmTrash() {
-        guard let request = trashRequest, request.blocked == nil, let before = catalog else { return }
-        trashRequest = nil
-        let result = Trash.move(request.books, shelf: request.shelf.title)
-        trashOutcome = TrashOutcome(moved: result.moved, failed: result.failed, before: before)
-        guard !result.moved.isEmpty else { return }
-        let updated = before.removing(result.moved.map(\.path))
-        set(updated)
-        try? CatalogStore.save(updated)
+    func confirm() {
+        guard let p = pending, p.blocked == nil, let current = catalog else { return }
+        pending = nil
+        switch p.action {
+        case .trash:
+            let r = Trash.move(p.books, shelf: p.shelf)
+            if !r.moved.isEmpty { commit(current.removing(r.moved.map(\.path))) }
+            let size = r.moved.compactMap(\.size).reduce(0, +)
+            outcome = Outcome(message: r.moved.isEmpty ? "没能移到废纸篓" : "已移到废纸篓 \(r.moved.count) 项 · \(Fmt.size(size))",
+                              failed: r.failed, undo: r.moved.isEmpty ? nil : .trash(r.moved))
+        case .freeze:
+            let r = ColdStorage.freeze(p.books, shelf: p.shelf)
+            if let batch = r.batch {
+                commit(current.removing(batch.items.map(\.book.path)))
+                outcome = Outcome(message: "已冷藏 \(batch.items.count) 项 · \(Fmt.size(batch.size))", failed: r.failed, undo: .freeze(batch))
+            } else {
+                outcome = Outcome(message: "没能冷藏，所有东西都留在原处", failed: r.failed, undo: nil)
+            }
+        case .discard(let batch):
+            let r = ColdStorage.discard(batch)
+            outcome = Outcome(message: r.record == nil ? "没能移到废纸篓" : "已把冷藏的「\(batch.shelf.title)」移到废纸篓",
+                              failed: r.failure.map { [(ColdStorage.directory(of: batch), $0)] } ?? [],
+                              undo: r.record.map { .trash([$0]) })
+        }
+        refreshShelves()
     }
 
-    func undoTrash() {
-        guard var outcome = trashOutcome, !outcome.undone else { return }
-        let failed = Trash.restore(outcome.moved)
-        let restored = outcome.moved.filter { r in !failed.contains { $0.path == r.path } }.map(\.path)
-        if let current = catalog, !restored.isEmpty {
-            var c = current
-            let keep = outcome.before.removing(outcome.moved.map(\.path).filter { !restored.contains($0) })
-            c.shelves = keep.shelves
-            set(c)
-            try? CatalogStore.save(c)
+    func undo() {
+        guard let undo = outcome?.undo else { return }
+        switch undo {
+        case .trash(let records): restore(records)
+        case .freeze(let batch): thaw(batch)
         }
-        outcome.undone = true
-        trashOutcome = failed.isEmpty ? nil : TrashOutcome(moved: [], failed: failed, before: outcome.before, undone: true)
+    }
+
+    func thaw(_ batch: ColdBatch) {
+        let r = ColdStorage.thaw(batch)
+        if let current = catalog, !r.restored.isEmpty { commit(current.inserting(r.restored, into: batch.shelf)) }
+        let size = r.restored.filter { !$0.nested }.compactMap(\.size).reduce(0, +)
+        outcome = Outcome(message: r.restored.isEmpty ? "没能放回" : "已放回原处 \(r.restored.count) 项 · \(Fmt.size(size))",
+                          failed: r.failed, undo: nil)
+        refreshShelves()
+    }
+
+    func restore(_ records: [TrashRecord]) {
+        let failed = Trash.restore(records)
+        let back = records.filter { r in !failed.contains { $0.path == r.path } }
+        if var c = catalog {
+            for r in back {
+                if let book = r.book, let owner = r.owner { c = c.inserting([book], into: owner) }
+            }
+            commit(c)
+        }
+        outcome = Outcome(message: back.isEmpty ? "没能放回" : "已从废纸篓放回 \(back.count) 项", failed: failed, undo: nil)
+        refreshShelves()
     }
 
     func openTrash() {
         NSWorkspace.shared.open(URL(fileURLWithPath: CatalogStore.home + "/.Trash"))
+    }
+
+    func openColdRoom() {
+        try? FileManager.default.createDirectory(atPath: ColdStorage.root, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(URL(fileURLWithPath: ColdStorage.root))
     }
 }

@@ -16,6 +16,8 @@ struct ContentView: View {
                     switch model.sidebar {
                     case .category(let c)?:
                         CategoryBrowser(category: c)
+                    case .coldRoom?:
+                        ColdRoomView()
                     default:
                         if model.search.isEmpty { OverviewView() } else { CategoryBrowser(category: nil) }
                     }
@@ -27,83 +29,102 @@ struct ContentView: View {
         .toolbar { Toolbar() }
         .tint(.primary)
         .onChange(of: model.sidebar) { model.focusedBook = nil }
-        .alert(trashTitle, isPresented: Binding(get: { model.trashRequest != nil }, set: { if !$0 { model.trashRequest = nil } }),
-               presenting: model.trashRequest) { request in
-            if request.blocked == nil {
-                Button("移到废纸篓", role: .destructive) { model.confirmTrash() }
+        .alert(pendingTitle, isPresented: Binding(get: { model.pending != nil }, set: { if !$0 { model.pending = nil } }),
+               presenting: model.pending) { p in
+            if p.blocked == nil {
+                Button(confirmLabel(p.action), role: isDestructive(p.action) ? .destructive : nil) { model.confirm() }
                 Button("取消", role: .cancel) {}
             } else {
                 Button("好", role: .cancel) {}
             }
-        } message: { request in
-            Text(trashMessage(request))
+        } message: { p in
+            Text(pendingMessage(p))
         }
         .overlay(alignment: .bottom) {
-            if let outcome = model.trashOutcome {
-                TrashBar(outcome: outcome).padding(16)
+            if let outcome = model.outcome {
+                OutcomeBar(outcome: outcome).padding(16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeOut(duration: 0.2), value: model.trashOutcome == nil)
+        .animation(.easeOut(duration: 0.2), value: model.outcome == nil)
         .task { await Snapshot.runIfRequested(model) }
     }
 }
 
 extension ContentView {
-    private var trashTitle: String {
-        guard let r = model.trashRequest else { return "" }
-        if r.blocked != nil { return "现在还不能扔" }
-        return r.books.count == 1 ? "把「\((r.books[0].path as NSString).lastPathComponent)」移到废纸篓？"
-            : "把「\(r.shelf.title)」的 \(r.books.count) 项移到废纸篓？"
+    private var pendingTitle: String {
+        guard let p = model.pending else { return "" }
+        if p.blocked != nil { return "现在还不能挪" }
+        let what = p.books.count == 1 ? "「\((p.books[0].path as NSString).lastPathComponent)」" : "「\(p.shelf.title)」的 \(p.books.count) 项"
+        switch p.action {
+        case .trash: return "把\(what)移到废纸篓？"
+        case .freeze: return "把\(what)冷藏起来？"
+        case .discard(let b): return "把冷藏的「\(b.shelf.title)」移到废纸篓？"
+        }
     }
 
-    private func trashMessage(_ r: AppModel.TrashRequest) -> String {
-        if let blocked = r.blocked { return blocked }
-        var lines = ["共 \(Fmt.size(r.size))。在废纸篓清倒之前随时可以放回原处。"]
-        lines += r.warnings
-        let paths = r.books.prefix(6).map { Fmt.path($0.path) }
-        lines.append("\n" + paths.joined(separator: "\n") + (r.books.count > 6 ? "\n…等 \(r.books.count) 项" : ""))
+    private func confirmLabel(_ action: AppModel.Action) -> String {
+        if case .freeze = action { return "冷藏" }
+        return "移到废纸篓"
+    }
+
+    private func isDestructive(_ action: AppModel.Action) -> Bool {
+        if case .freeze = action { return false }
+        return true
+    }
+
+    private func pendingMessage(_ p: AppModel.PendingAction) -> String {
+        if let blocked = p.blocked { return blocked }
+        var lines: [String]
+        switch p.action {
+        case .trash: lines = ["共 \(Fmt.size(p.size))。在废纸篓清倒之前随时可以放回原处。"]
+        case .freeze: lines = ["共 \(Fmt.size(p.size))，会挪到「\(ColdStorage.folderName)」，原来的位置都记着，随时能一键放回。"]
+        case .discard(let b): lines = ["共 \(b.items.count) 项 · \(Fmt.size(b.size))，冷藏于 \(Fmt.day(b.date))。在废纸篓清倒之前还能放回冷藏区。"]
+        }
+        lines += p.warnings
+        let paths = p.books.prefix(6).map { Fmt.path($0.path) }
+        lines.append("\n" + paths.joined(separator: "\n") + (p.books.count > 6 ? "\n…等 \(p.books.count) 项" : ""))
         return lines.joined(separator: "\n")
     }
 }
 
-/// Result of the last move to the Trash, with a way to take it back.
-private struct TrashBar: View {
+/// Result of the last move, with a way to take it back.
+private struct OutcomeBar: View {
     @Environment(AppModel.self) private var model
-    let outcome: AppModel.TrashOutcome
+    let outcome: AppModel.Outcome
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: outcome.failed.isEmpty ? "trash" : "exclamationmark.triangle")
+            Image(systemName: outcome.failed.isEmpty ? "checkmark.circle" : "exclamationmark.triangle")
             VStack(alignment: .leading, spacing: 2) {
-                Text(headline).font(.callout.weight(.medium))
-                ForEach(outcome.failed.prefix(3), id: \.path) { f in
-                    Text("\(Fmt.path(f.path))：\(f.reason)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(outcome.message).font(.callout.weight(.medium))
+                if outcome.failed.count > 0 {
+                    ForEach(outcome.failed.prefix(3), id: \.path) { f in
+                        Text("\(Fmt.path(f.path))：\(f.reason)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    if outcome.failed.count > 3 {
+                        Text("…另有 \(outcome.failed.count - 3) 项").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             Spacer(minLength: 20)
-            if !outcome.moved.isEmpty {
-                Button("撤销") { model.undoTrash() }
-                Button("打开废纸篓") { model.openTrash() }
+            if let undo = outcome.undo {
+                Button("撤销") { model.undo() }
+                switch undo {
+                case .trash: Button("打开废纸篓") { model.openTrash() }
+                case .freeze: Button("查看冷藏区") { model.sidebar = .coldRoom; model.outcome = nil }
+                }
             }
-            Button { model.trashOutcome = nil } label: { Image(systemName: "xmark") }
+            Button { model.outcome = nil } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 680)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-    }
-
-    private var headline: String {
-        let size = outcome.moved.compactMap(\.size).reduce(0, +)
-        let moved = outcome.moved.isEmpty ? "" : "已移到废纸篓 \(outcome.moved.count) 项 · \(Fmt.size(size))"
-        if outcome.failed.isEmpty { return moved }
-        let failed = outcome.undone ? "\(outcome.failed.count) 项没能放回" : "\(outcome.failed.count) 项没能移走"
-        return moved.isEmpty ? failed : "\(moved)，\(failed)"
     }
 }
 
@@ -118,6 +139,10 @@ private struct Sidebar: View {
                     SidebarRow(item: .category(c), title: c.rawValue, symbol: c.symbol,
                                size: model.catalog == nil ? nil : model.size(of: c))
                 }
+            }
+            SwiftUI.Section("整理") {
+                SidebarRow(item: .coldRoom, title: "冷藏区", symbol: "snowflake",
+                           size: model.coldBatches.isEmpty ? nil : model.coldSize)
             }
         }
         .listStyle(.sidebar)

@@ -7,7 +7,9 @@ enum Snapshot {
     static func runIfRequested(_ model: AppModel) async {
         let d = UserDefaults.standard
         guard let path = d.string(forKey: "snapshot") else { return }
-        if let page = d.string(forKey: "page"), let c = Category(rawValue: page) { model.sidebar = .category(c) }
+        if let page = d.string(forKey: "page") {
+            if page == "冷藏区" { model.sidebar = .coldRoom } else if let c = Category(rawValue: page) { model.sidebar = .category(c) }
+        }
         if let shelf = d.string(forKey: "shelf") { model.selectedShelf = shelf }
         if d.bool(forKey: "unused") { model.onlyUnused = true }
         try? await Task.sleep(for: .seconds(2))

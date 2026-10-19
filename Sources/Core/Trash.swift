@@ -6,7 +6,11 @@ struct TrashRecord: Codable {
     var trashedTo: String
     var date: Date
     var size: Int64?
+    /// Title of the shelf it came from.
     var shelf: String
+    var book: Book?
+    /// The shelf without its books, to put the item back into the catalog.
+    var owner: Shelf?
 }
 
 enum Trash {
@@ -17,7 +21,7 @@ enum Trash {
         let h = CatalogStore.home
         let lib = h + "/Library"
         return [h, lib, h + "/Applications", h + "/Desktop", h + "/Documents", h + "/Downloads", h + "/Movies",
-                h + "/Music", h + "/Pictures", h + "/Public", h + "/go", h + "/bin",
+                h + "/Music", h + "/Pictures", h + "/Public", h + "/go", h + "/bin", ColdStorage.root,
                 lib + "/Application Support", lib + "/Caches", lib + "/Preferences", lib + "/Containers",
                 lib + "/Group Containers", lib + "/Logs", lib + "/LaunchAgents",
                 "/Applications", "/Library", "/usr/local", "/opt/homebrew", "/Users/Shared"]
@@ -30,11 +34,11 @@ enum Trash {
                 lib + "/Messages", CatalogStore.directory, Bundle.main.bundlePath]
     }
 
-    /// Why this book can't be moved to the Trash from MacTidy, or nil if it can.
+    /// Why this book can't be moved away (to the Trash or cold storage), or nil if it can.
     static func refusal(_ book: Book, in shelf: Shelf) -> String? {
         if shelf.category == .system { return "macOS 自带的东西不动" }
         let p = book.path
-        if containers.contains(p) { return "这是存放很多东西的文件夹，请扔里面具体的项" }
+        if containers.contains(p) { return "这是存放很多东西的文件夹，请处理里面具体的项" }
         if untouchable.contains(where: { p == $0 || p.hasPrefix($0 + "/") }) { return "iCloud、钥匙串、邮件等数据不在这里处理" }
         if (try? fm.attributesOfItem(atPath: p)) == nil { return "已经不在了" }
         let parent = (p as NSString).deletingLastPathComponent
@@ -48,36 +52,49 @@ enum Trash {
         return books.filter { b in !paths.contains { $0 != b.path && b.path.hasPrefix($0 + "/") } }
     }
 
-    static func move(_ books: [Book], shelf: String) -> (moved: [TrashRecord], failed: [(path: String, reason: String)]) {
+    static func move(_ books: [Book], shelf: Shelf?) -> (moved: [TrashRecord], failed: [(path: String, reason: String)]) {
         var moved = [TrashRecord](), failed = [(path: String, reason: String)]()
+        var owner = shelf
+        owner?.books = []
         for b in outermost(books) {
             do {
                 var result: NSURL?
                 try fm.trashItem(at: URL(fileURLWithPath: b.path), resultingItemURL: &result)
-                moved.append(TrashRecord(path: b.path, trashedTo: result?.path ?? "", date: Date(), size: b.size, shelf: shelf))
+                moved.append(TrashRecord(path: b.path, trashedTo: result?.path ?? "", date: Date(), size: b.size,
+                                         shelf: shelf?.title ?? "冷藏区", book: b, owner: owner))
             } catch {
                 failed.append((b.path, describe(error)))
             }
         }
-        appendLog(moved)
+        writeLog(readLog() + moved)
         return (moved, failed)
+    }
+
+    /// What MacTidy put in the Trash that is still there, newest first.
+    static func inTrash() -> [TrashRecord] {
+        readLog().filter { !$0.trashedTo.isEmpty && (try? fm.attributesOfItem(atPath: $0.trashedTo)) != nil }
+            .sorted { $0.date > $1.date }
     }
 
     /// Puts items back where they were; returns the ones that couldn't be restored.
     static func restore(_ records: [TrashRecord]) -> [(path: String, reason: String)] {
         var failed = [(path: String, reason: String)]()
+        var done = Set<String>()
         for r in records {
-            if fm.fileExists(atPath: r.path) { failed.append((r.path, "原位置已有同名的东西")); continue }
+            if (try? fm.attributesOfItem(atPath: r.path)) != nil { failed.append((r.path, "原位置已有同名的东西")); continue }
             do {
+                try fm.createDirectory(atPath: (r.path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
                 try fm.moveItem(atPath: r.trashedTo, toPath: r.path)
+                done.insert(r.trashedTo)
             } catch {
                 failed.append((r.path, fm.fileExists(atPath: r.trashedTo) ? describe(error) : "废纸篓里已经找不到了"))
             }
         }
+        writeLog(readLog().filter { !done.contains($0.trashedTo) })
         return failed
     }
 
-    private static func describe(_ error: Error) -> String {
+    static func describe(_ error: Error) -> String {
         let e = error as NSError
         if e.domain == NSCocoaErrorDomain, [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(e.code) {
             return "没有权限，请在访达里处理"
@@ -85,16 +102,20 @@ enum Trash {
         return e.localizedDescription
     }
 
-    private static func appendLog(_ records: [TrashRecord]) {
-        guard !records.isEmpty else { return }
-        let dec = JSONDecoder(), enc = JSONEncoder()
+    private static func readLog() -> [TrashRecord] {
+        let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
+        return fm.contents(atPath: logPath).flatMap { try? dec.decode([TrashRecord].self, from: $0) } ?? []
+    }
+
+    /// Entries whose Trash copy is gone (the Trash was emptied) are dropped.
+    private static func writeLog(_ records: [TrashRecord]) {
+        let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        var log = fm.contents(atPath: logPath).flatMap { try? dec.decode([TrashRecord].self, from: $0) } ?? []
-        log += records
+        let live = records.filter { !$0.trashedTo.isEmpty && (try? fm.attributesOfItem(atPath: $0.trashedTo)) != nil }
         try? fm.createDirectory(atPath: CatalogStore.directory, withIntermediateDirectories: true)
-        try? enc.encode(log).write(to: URL(fileURLWithPath: logPath), options: .atomic)
+        try? enc.encode(live).write(to: URL(fileURLWithPath: logPath), options: .atomic)
     }
 }
 

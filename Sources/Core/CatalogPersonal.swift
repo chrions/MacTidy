@@ -17,7 +17,7 @@ extension CatalogBuilder {
     func addPersonal() {
         let standard: [(String, String)] = [("Desktop", "桌面"), ("Documents", "文稿"), ("Downloads", "下载"), ("Movies", "影片"),
                                             ("Pictures", "图片"), ("Music", "音乐")]
-        let skip = Set(["Library", "Applications", "Public", "go", "bin"] + standard.map(\.0))
+        let skip = Set(["Library", "Applications", "Public", "go", "bin", ColdStorage.folderName] + standard.map(\.0))
         let pathDirs = Set(inv.pathDirs)
         for name in children(home) where !name.hasPrefix(".") && !skip.contains(name) && !pathDirs.contains(home + "/" + name) {
             addPersonal(home + "/" + name, location: "主目录")

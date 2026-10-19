@@ -61,7 +61,7 @@ struct OverviewView: View {
     private var unpacked: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionTitle(title: "搬来后没用过", subtitle: "从旧 Mac 迁移过来以后，再也没有打开或改动过。最值得先看看。")
-            let list = Array(model.units.filter { $0.used == false }.sorted { $0.size > $1.size }.prefix(12))
+            let list = Array(model.units.filter { model.flaggedUnused($0) }.sorted { $0.size > $1.size }.prefix(12))
             if list.isEmpty {
                 Text("没有发现").foregroundStyle(.secondary)
             } else {
@@ -159,7 +159,7 @@ struct EraTimeline: View {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(eras.enumerated()), id: \.offset) { i, e in
                     let list = units.filter { $0.era == e.index }
-                    let unused = list.filter { $0.used == false }
+                    let unused = list.filter { model.flaggedUnused($0) }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 2).fill(.primary.opacity(eraShade(i, count: eras.count))).frame(width: 10, height: 10)

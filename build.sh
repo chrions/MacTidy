@@ -47,9 +47,20 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 "${SWIFTC[@]}" -parse-as-library Sources/Core/*.swift Sources/App/*.swift -o "$APP/Contents/MacOS/$EXEC"
 
 # A stable self-signed identity keeps privacy grants (Full Disk Access) valid across rebuilds;
-# ad-hoc signatures change every build and silently invalidate them.
+# ad-hoc signatures change every build and silently invalidate them. The identity lives in its own
+# never-locking keychain so codesign doesn't stall on a login-keychain prompt.
 SIGN_NAME="MacTidy Local Signing"
-signing_identity() { security find-identity -p codesigning | awk -v n="\"$SIGN_NAME\"" 'index($0, n) { print $2; exit }'; }
+KC="$HOME/Library/Keychains/mactidy-signing.keychain-db"
+KC_PASS="mactidy-local-signing"
+signing_identity() { security find-identity -p codesigning "$KC" | awk -v n="\"$SIGN_NAME\"" 'index($0, n) { print $2; exit }'; }
+if [[ ! -f "$KC" ]]; then
+  security create-keychain -p "$KC_PASS" "$KC"
+  security set-keychain-settings "$KC"
+fi
+if ! security list-keychains -d user | grep -q "$KC"; then
+  security list-keychains -d user -s $(security list-keychains -d user | tr -d '" ') "$KC"
+fi
+security unlock-keychain -p "$KC_PASS" "$KC"
 if [[ -z "$(signing_identity)" ]]; then
   TMP=$(mktemp -d)
   cat > "$TMP/cfg" <<EOF
@@ -67,10 +78,11 @@ EOF
   /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$TMP/cfg" \
     -keyout "$TMP/key.pem" -out "$TMP/cert.pem" 2>/dev/null
   /usr/bin/openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -passout pass:tmp -out "$TMP/id.p12"
-  security import "$TMP/id.p12" -k ~/Library/Keychains/login.keychain-db -P tmp -T /usr/bin/codesign >/dev/null
+  security import "$TMP/id.p12" -k "$KC" -P tmp -T /usr/bin/codesign >/dev/null
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KC" >/dev/null
   rm -rf "$TMP"
 fi
-codesign --force --sign "$(signing_identity)" "$APP"
+codesign --force --keychain "$KC" --sign "$(signing_identity)" "$APP"
 echo "已生成: $PWD/$APP"
 
 if pkill -x "$EXEC"; then

@@ -73,6 +73,7 @@ struct ShelfRow: View {
     }
 
     private var unusedTag: String? {
+        if model.isKept(shelf) { return "已保留" }
         guard CatalogReport.isCollection(shelf) else { return shelf.usedSinceArrival == false ? "没用过" : nil }
         let (unused, total) = model.unusedCount(shelf)
         if unused == 0 { return nil }
@@ -100,7 +101,7 @@ struct ShelfDetail: View {
                         Text(shelf.summary).foregroundStyle(.secondary)
                     }
 
-                    TrashShelfButton(shelf: shelf)
+                    ShelfActions(shelf: shelf)
 
                     HStack(alignment: .top, spacing: 16) {
                         Fact(label: "大小", value: Fmt.size(shelf.size))
@@ -147,6 +148,7 @@ struct ShelfDetail: View {
     }
 
     private var usedText: String {
+        if model.isKept(shelf) { return "已保留" }
         if CatalogReport.isCollection(shelf) {
             let (unused, total) = model.unusedCount(shelf)
             return unused == 0 ? "都用过" : unused == total ? "都没用过" : "\(unused) 项没用过"
@@ -159,25 +161,37 @@ struct ShelfDetail: View {
     }
 }
 
-/// Collections offer to clear out what hasn't been used; other shelves go as a whole.
-private struct TrashShelfButton: View {
+/// Keep, freeze or throw away. Collections act on what hasn't been used; other shelves go as a whole.
+private struct ShelfActions: View {
     @Environment(AppModel.self) private var model
     let shelf: Shelf
 
     var body: some View {
         if shelf.category != .system {
             let collection = CatalogReport.isCollection(shelf)
-            let books = model.trashable(shelf, onlyUnused: collection)
-            let total = Trash.outermost(collection ? shelf.books.filter { !$0.nested && model.used($0) == false } : shelf.books).count
-            if !books.isEmpty {
-                HStack(spacing: 10) {
-                    Button(role: .destructive) { model.requestTrash(books, in: shelf) } label: {
-                        Label(collection ? "把没用过的 \(books.count) 项移到废纸篓" : "全部移到废纸篓", systemImage: "trash")
+            let kept = model.isKept(shelf)
+            let books = kept ? [] : model.movable(shelf, onlyUnused: collection)
+            let total = Trash.outermost(collection ? shelf.books.filter { !$0.nested && model.flaggedUnused($0, in: shelf) } : shelf.books).count
+            let scope = collection ? "没用过的 \(books.count) 项" : "全部"
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Button { model.toggleKeep(shelf) } label: {
+                        Label(kept ? "取消保留" : "保留", systemImage: kept ? "pin.slash" : "pin")
                     }
-                    .buttonStyle(.bordered)
-                    if books.count < total {
-                        Text("另有 \(total - books.count) 处不能从这里扔，会留着").font(.caption).foregroundStyle(.secondary)
+                    .help(kept ? "重新提醒这个书架里没用过的东西" : "以后不再提醒这个书架没用过")
+                    if !books.isEmpty {
+                        Button { model.request(.freeze, books, in: shelf) } label: {
+                            Label("冷藏\(scope)", systemImage: "snowflake")
+                        }
+                        .help("挪到冷藏区，随时能放回")
+                        Button(role: .destructive) { model.request(.trash, books, in: shelf) } label: {
+                            Label("\(scope)移到废纸篓", systemImage: "trash")
+                        }
                     }
+                }
+                .buttonStyle(.bordered)
+                if !books.isEmpty, books.count < total {
+                    Text("另有 \(total - books.count) 处不能从这里挪，会留着").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -194,13 +208,15 @@ struct BookRow: View {
     private var showEra: Bool { shelf.category != .system }
 
     var body: some View {
-        let refusal = model.trashRefusal(book, in: shelf)
+        let refusal = model.refusal(book, in: shelf)
+        let keptHere = model.decisions.keptPaths.contains(book.path)
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(book.kind.rawValue).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     if book.protected { Image(systemName: "lock").font(.caption2).foregroundStyle(.tertiary).help("需要管理员权限或受系统保护") }
-                    if showEra, model.used(book) == false { Tag("没用过") }
+                    if showEra, model.flaggedUnused(book, in: shelf) { Tag("没用过") }
+                    if keptHere { Tag("已保留") }
                     if book.nested { Text("包含在上面某一项里").font(.caption2).foregroundStyle(.tertiary) }
                 }
                 Text(Fmt.path(book.path))
@@ -213,22 +229,12 @@ struct BookRow: View {
             }
             Spacer(minLength: 12)
             Text(Fmt.size(book.size)).monospacedDigit().foregroundStyle(.secondary)
-            Button { model.reveal(book.path) } label: {
-                Image(systemName: "arrow.forward.circle")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .opacity(hover ? 1 : 0.35)
-            .help("在访达中显示")
-            if showEra {
-                Button { model.requestTrash([book], in: shelf) } label: {
-                    Image(systemName: "trash")
+            HStack(spacing: 6) {
+                rowButton("arrow.forward.circle", help: "在访达中显示") { model.reveal(book.path) }
+                if showEra {
+                    rowButton("snowflake", help: refusal ?? "冷藏", disabled: refusal != nil) { model.request(.freeze, [book], in: shelf) }
+                    rowButton("trash", help: refusal ?? "移到废纸篓", disabled: refusal != nil) { model.request(.trash, [book], in: shelf) }
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .opacity(refusal != nil ? 0.15 : (hover ? 1 : 0.35))
-                .disabled(refusal != nil)
-                .help(refusal ?? "移到废纸篓")
             }
         }
         .padding(.vertical, 10)
@@ -239,9 +245,20 @@ struct BookRow: View {
             Button("在访达中显示") { model.reveal(book.path) }
             if showEra {
                 Divider()
-                Button("移到废纸篓") { model.requestTrash([book], in: shelf) }.disabled(refusal != nil)
+                Button(keptHere ? "取消保留" : "保留，不再提醒") { model.toggleKeep(book) }
+                Button("冷藏") { model.request(.freeze, [book], in: shelf) }.disabled(refusal != nil)
+                Button("移到废纸篓") { model.request(.trash, [book], in: shelf) }.disabled(refusal != nil)
             }
         }
+    }
+
+    private func rowButton(_ symbol: String, help: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol) }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .opacity(disabled ? 0.15 : (hover ? 1 : 0.35))
+            .disabled(disabled)
+            .help(help)
     }
 
     private var meta: String {
