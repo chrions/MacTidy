@@ -4,7 +4,7 @@ func log(_ s: String) {
     FileHandle.standardError.write((s + "\n").data(using: .utf8)!)
 }
 
-var outDir = (FileManager.default.homeDirectoryForCurrentUser.path as NSString).appendingPathComponent("Desktop/MacTidy/reports")
+var outDir = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("reports")
 var args = CommandLine.arguments.dropFirst()
 while let a = args.popFirst() {
     switch a {
@@ -16,7 +16,7 @@ while let a = args.popFirst() {
           mactidy            Build the library catalog: who owns each thing, which Mac it came from,
                              and whether it has been used since moving here
 
-          --out DIR  Output folder (default ~/Desktop/MacTidy/reports)
+          --out DIR  Output folder (default ./reports)
         """)
         exit(0)
     default:
