@@ -187,6 +187,10 @@ struct AIClient {
         guard (200..<300).contains(status) else {
             let detail = ((json?["error"] as? [String: Any])?["message"] as? String)
                 ?? String(data: data.prefix(300), encoding: .utf8) ?? ""
+            if detail.range(of: #"(?i)ip.{0,20}(denied|not allowed|whitelist|restrict)"#, options: .regularExpression) != nil {
+                throw AIError(message: "这把 API key 设了 IP 白名单，当前网络的出口 IP 不在里面（\(status)）。"
+                              + "可以在服务商控制台去掉 IP 限制，或把出口 IP 加进白名单；开着代理时，出口 IP 可能是代理节点的。原始信息：\(detail)")
+            }
             switch status {
             case 401, 403: throw AIError(message: "API key 不对或没有权限（\(status)）：\(detail)")
             case 404: throw AIError(message: "找不到接口或模型（404），检查接口地址和模型名：\(detail)")

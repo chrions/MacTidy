@@ -7,6 +7,18 @@ enum Snapshot {
     @MainActor
     static func runIfRequested(_ model: AppModel, openSettings: OpenSettingsAction) async {
         let d = UserDefaults.standard
+        if let out = d.string(forKey: "aitest") {
+            let client = AIClient(config: model.aiConfig, key: AIKey.read(for: model.aiConfig.baseURL))
+            var lines = ["key 长度：\(AIKey.read(for: model.aiConfig.baseURL)?.count ?? 0)"]
+            do { lines.append("测试连接：成功 " + (try await client.test())) } catch { lines.append("测试连接：" + error.localizedDescription) }
+            do {
+                let s = AISubject(id: "1", title: "com.tencent.wwmapp", category: "无主之物", summary: "", paths: ["~/Library/Containers/com.tencent.wwmapp"],
+                                  kinds: ["沙盒数据"], size: "229 MB", cameFrom: "", lastActive: "", usedSinceArrival: "")
+                lines.append("识别：" + ((try await client.recognise([s]))["1"]?.what ?? "没有结果"))
+            } catch { lines.append("识别：" + error.localizedDescription) }
+            try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
+            return
+        }
         guard let path = d.string(forKey: "snapshot") else { return }
         if let page = d.string(forKey: "page") {
             if page == "冷藏区" { model.sidebar = .coldRoom } else if let c = Category(rawValue: page) { model.sidebar = .category(c) }
