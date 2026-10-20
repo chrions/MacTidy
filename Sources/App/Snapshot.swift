@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Development aid: `open MacTidy.app --args -snapshot /tmp/a.png [-page apps|cold] [-shelf ID] [-unused YES] [-AppleLanguages '(ja)']`
+/// Development aid: `open MacTidy.app --args -snapshot /tmp/a.png [-page apps|cold] [-shelf ID] [-unused YES] [-size 1280x800] [-AppleLanguages '(ja)']`
 /// renders the window into a PNG, which works without Screen Recording permission.
 enum Snapshot {
     @MainActor
@@ -36,6 +36,9 @@ enum Snapshot {
         if settings {
             try? await Task.sleep(for: .seconds(1))
             openSettings()
+        }
+        if let size = d.string(forKey: "size")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2 {
+            NSApp.windows.first(where: \.isVisible)?.setContentSize(NSSize(width: size[0], height: size[1]))
         }
         try? await Task.sleep(for: .seconds(2))
         let windows = NSApp.windows.filter(\.isVisible)

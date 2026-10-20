@@ -12,6 +12,10 @@
 
 拿不准的东西可以先挪进**冷藏区**，原来的位置都记着，一键就能放回。
 
+![概览：根据迁移痕迹推断出的年代，以及按类别整理的编目](docs/screenshots/overview.png)
+
+![书架：Go 工具链的所有组成部分、各自从哪台 Mac 来、哪些没用过](docs/screenshots/shelf.png)
+
 ## 功能
 
 - **按类别分书架**：系统、应用、开发环境（Homebrew、Node、Go、Python、Ruby、Java、Rust 等）、终端与命令（Shell 配置、命令行工具、密钥、历史记录）、我的文件、无主之物。

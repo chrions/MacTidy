@@ -12,6 +12,10 @@ Migration Assistant brings everything along: apps you stopped using three Macs a
 
 Things you're unsure about can go to **cold storage** first: they're moved aside with their original locations recorded, and can be put back in one click.
 
+![Overview: eras inferred from migrations, and the catalog by category](docs/screenshots/overview.png)
+
+![A shelf: everything that belongs to the Go toolchain, where each part came from, and what hasn't been used](docs/screenshots/shelf.png)
+
 ## Features
 
 - **Shelves by category**: System, Apps, Development (Homebrew, Node, Go, Python, Ruby, Java, Rust…), Terminal (shell config, command-line tools, keys, histories), My Files, and Orphans.
