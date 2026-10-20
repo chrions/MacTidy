@@ -33,6 +33,9 @@ struct SettingsView: View {
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: 10) {

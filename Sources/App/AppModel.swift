@@ -100,6 +100,11 @@ final class AppModel {
 
     func eraName(_ index: Int?) -> String { report?.eraName(index) ?? "不详" }
 
+    func renameEra(_ era: Era, to name: String) {
+        Eras.rename(era, to: name)
+        if let c = catalog { set(c) }
+    }
+
     /// Activity after this moment counts as use on the current Mac (the migration day itself doesn't).
     var usedThreshold: Date? { catalog?.eras.first(where: \.isCurrent)?.start?.addingTimeInterval(86_400) }
 

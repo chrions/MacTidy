@@ -132,15 +132,12 @@ enum Eras {
         if let current, !machines.contains(where: { $0.id == current }) {
             machines.append((current, creationDate(home + "/Library") ?? Date()))
         }
-        let names = loadNames()
-        var eras = [Era(index: 0, name: "更早", start: nil, end: machines.first?.start, machineID: nil, isCurrent: false)]
+        var eras = [Era(index: 0, name: "", start: nil, end: machines.first?.start, machineID: nil, isCurrent: false)]
         for (i, m) in machines.enumerated() {
-            let isCurrent = m.id == current
-            let fallback = isCurrent ? "现在这台（\(machineDescription())）" : "第 \(i + 1) 台 Mac"
-            eras.append(Era(index: i + 1, name: names[m.id] ?? fallback, start: m.start,
-                            end: i + 1 < machines.count ? machines[i + 1].start : nil, machineID: m.id, isCurrent: isCurrent))
+            eras.append(Era(index: i + 1, name: "", start: m.start, end: i + 1 < machines.count ? machines[i + 1].start : nil,
+                            machineID: m.id, isCurrent: m.id == current))
         }
-        return eras
+        return named(eras)
     }
 
     /// Dates before Mac OS X are placeholders from archives and updaters (e.g. 1980-01-01 in zip files).
@@ -168,25 +165,56 @@ enum Eras {
         return list.compactMap { $0["date"] as? Date }.min()
     }
 
+    /// Apple's marketing name, e.g. "MacBook Pro (14-inch, Nov 2024)"; model identifier and CPU on older Macs.
     static func machineDescription() -> String {
-        [sysctlString("hw.model"), sysctlString("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: "，")
+        let product = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product")
+        defer { if product != 0 { IOObjectRelease(product) } }
+        if product != 0, let data = IORegistryEntryCreateCFProperty(product, "product-name" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Data,
+           let name = String(data: data, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespaces)),
+           !name.isEmpty {
+            return name
+        }
+        return [sysctlString("hw.model"), sysctlString("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: "，")
     }
 
-    /// Re-applies user-given names, which may have been set after the catalog was scanned.
+    /// Key for the period before the first known Mac in eras.json.
+    static let beforeKey = "before"
+
+    /// Default names, overridden by whatever the user called each Mac. Applied on every load, so renaming needs no rescan.
     static func named(_ eras: [Era]) -> [Era] {
         let names = loadNames()
+        let machines = eras.filter { $0.machineID != nil }.count
         return eras.map { era in
             var era = era
-            if let id = era.machineID, let name = names[id] { era.name = name }
-            if era.index == 0 { era.name = "更早" }
+            if era.index == 0 {
+                era.name = names[beforeKey] ?? (machines > 1 ? "第一台 Mac 之前" : "这台 Mac 之前")
+            } else if let id = era.machineID {
+                era.name = names[id] ?? (era.isCurrent ? machineDescription() : "第 \(era.index) 台 Mac")
+            }
             return era
         }
     }
 
-    /// User-given names, e.g. `{"<UUID>": "Intel MacBook Pro"}` in ~/Library/Application Support/MacTidy/eras.json.
+    /// Saves a user-given name for an era; an empty name goes back to the default.
+    static func rename(_ era: Era, to name: String) {
+        guard let key = era.index == 0 ? beforeKey : era.machineID else { return }
+        var names = loadNames()
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        names[key] = clean.isEmpty ? nil : clean
+        try? fm.createDirectory(atPath: namesPath.deletingLastPathComponent, withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? enc.encode(names).write(to: URL(fileURLWithPath: namesPath as String), options: .atomic)
+    }
+
+    private static var namesPath: NSString {
+        (fm.homeDirectoryForCurrentUser.path + "/Library/Application Support/MacTidy/eras.json") as NSString
+    }
+
+    /// User-given names keyed by hardware UUID (or `before`), in ~/Library/Application Support/MacTidy/eras.json.
     private static func loadNames() -> [String: String] {
-        let path = fm.homeDirectoryForCurrentUser.path + "/Library/Application Support/MacTidy/eras.json"
-        guard let data = fm.contents(atPath: path) else { return [:] }
+        guard let data = fm.contents(atPath: namesPath as String) else { return [:] }
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 

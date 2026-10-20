@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         @Bindable var model = model
@@ -63,7 +64,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: model.outcome == nil)
-        .task { await Snapshot.runIfRequested(model) }
+        .task { await Snapshot.runIfRequested(model, openSettings: openSettings) }
     }
 }
 

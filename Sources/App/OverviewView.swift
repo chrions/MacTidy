@@ -22,12 +22,33 @@ struct OverviewView: View {
     }
 
     private func header(_ catalog: Catalog) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("这台 Mac").font(.system(size: 34, weight: .semibold))
-            let total = catalog.shelves.map(\.size).reduce(0, +)
-            let name = catalog.eras.first(where: \.isCurrent)?.name ?? catalog.machine
-            Text("\(name) · 已编目 \(Fmt.size(total)) · \(catalog.shelves.count) 个书架 · 扫描于 \(Fmt.day(catalog.generatedAt))")
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("这台 Mac").font(.system(size: 34, weight: .semibold))
+                let total = catalog.shelves.map(\.size).reduce(0, +)
+                let name = catalog.eras.first(where: \.isCurrent)?.name ?? catalog.machine
+                Text("\(name) · 已编目 \(Fmt.size(total)) · \(catalog.shelves.count) 个书架 · 扫描于 \(Fmt.day(catalog.generatedAt))")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 6) {
+                Button { model.scan() } label: {
+                    Label(model.scanning ? "正在扫描…" : "全盘扫描", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(model.scanning)
+                .help("重新盘点整台 Mac，只读，一般一两分钟")
+                if model.scanning {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(model.progress).lineLimit(1)
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: 220, alignment: .trailing)
+                }
+            }
+            .padding(.top, 8)
         }
     }
 
@@ -136,14 +157,19 @@ private struct UnitRow: View {
 /// One bar split by era, sized by how much each Mac contributed.
 struct EraTimeline: View {
     @Environment(AppModel.self) private var model
+    @State private var renaming: Era?
+    @State private var newName = ""
 
     var body: some View {
         let eras = model.eras
         let units = model.units
         let sizes = eras.map { e in units.filter { $0.era == e.index }.map(\.size).reduce(0, +) }
         let total = max(sizes.reduce(0, +), 1)
+        let migrated = eras.filter { $0.machineID != nil }.count > 1
         VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(title: "年代", subtitle: "每样东西按它最早出现的时间，归到当时在用的那台 Mac。")
+            SectionTitle(title: "年代", subtitle: migrated
+                         ? "每样东西按它最早出现的时间，归到当时在用的那台 Mac。点名字可以改成你记得的叫法。"
+                         : "没有发现从别的 Mac 迁移过来的痕迹，东西都归在这台 Mac；更早的来自压缩包、拷贝或备份。")
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     ForEach(Array(eras.enumerated()), id: \.offset) { i, e in
@@ -163,7 +189,14 @@ struct EraTimeline: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 2).fill(.primary.opacity(eraShade(i, count: eras.count))).frame(width: 10, height: 10)
-                            Text(e.name).font(.callout.weight(.medium))
+                            Button {
+                                newName = e.name
+                                renaming = e
+                            } label: {
+                                Text(e.name).font(.callout.weight(.medium)).multilineTextAlignment(.leading)
+                            }
+                            .buttonStyle(.plain)
+                            .help("改个名字，比如「公司配的 Intel MacBook」")
                             if e.isCurrent { Tag("现在") }
                         }
                         Text(e.start.map { "\(Fmt.month($0)) 起" } ?? e.end.map { "\(Fmt.month($0)) 以前" } ?? "第一台 Mac 之前").font(.caption).foregroundStyle(.secondary)
@@ -176,6 +209,15 @@ struct EraTimeline: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+        }
+        .alert("给这段时期起个名字", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("名字", text: $newName)
+            Button("保存") { if let e = renaming { model.renameEra(e, to: newName) } }
+            Button("恢复默认") { if let e = renaming { model.renameEra(e, to: "") } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(renaming.map { $0.start.map { "\(Fmt.month($0)) 起用的那台 Mac。" } ?? "第一台 Mac 之前就有的东西。" } ?? "")
+                + Text("比如机型和颜色、公司配的还是自己买的，方便你回忆。")
         }
     }
 }

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>local.fyf.MacTidy</string>
+    <string>io.github.mactidy.MacTidy</string>
     <key>CFBundleName</key>
     <string>MacTidy</string>
     <key>CFBundleDisplayName</key>

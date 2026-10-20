@@ -141,7 +141,7 @@ struct AIClient {
     static let batchSize = 12
 
     private static let instructions = """
-    你是 macOS 专家，在帮用户整理一台经过多次迁移（Intel Mac → M1 Mac → 现在这台）的 Mac。
+    你是 macOS 专家，在帮用户整理一台 Mac，它可能用「迁移助理」从以前的 Mac 搬过来过一次或多次，积累了很多来历不明的东西。
     用户会给你一组条目，每个条目只有名称、路径和元数据，没有文件内容。对每个条目判断：
     - owner：它是哪个应用、开发商或工具留下的；用户自己的文件写「用户本人」；认不出写 null。
     - what：它是干什么的，一两句具体的中文，不要复述路径。
