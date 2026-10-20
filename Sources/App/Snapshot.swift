@@ -12,6 +12,10 @@ enum Snapshot {
         }
         if let shelf = d.string(forKey: "shelf") { model.selectedShelf = shelf }
         if d.bool(forKey: "unused") { model.onlyUnused = true }
+        if d.bool(forKey: "ai"), let s = model.shelf(model.selectedShelf) {
+            model.recognise([s], force: true)
+            for _ in 0..<60 where model.aiProgress != nil { try? await Task.sleep(for: .milliseconds(500)) }
+        }
         try? await Task.sleep(for: .seconds(2))
         guard let window = NSApp.windows.first(where: \.isVisible), let frame = window.contentView?.superview,
               let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return }

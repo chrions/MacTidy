@@ -332,6 +332,157 @@ final class AppModel {
         NSWorkspace.shared.open(URL(fileURLWithPath: CatalogStore.home + "/.Trash"))
     }
 
+    // MARK: AI recognition
+
+    var aiConfig = AIConfig.load()
+    private(set) var aiNotes = AINotes.load()
+    private(set) var aiProgress: String?
+    var aiError: String?
+    private var aiTask: Task<Void, Never>?
+
+    var aiReady: Bool { aiConfig.isComplete }
+
+    /// Shelves (and items) whose names alone could leak secrets are never sent.
+    private static let privateShelves: Set<String> = ["mine:secret", "term:secrets"]
+
+    func aiKey(_ shelf: Shelf) -> String { "shelf:" + shelf.id }
+    func aiKey(_ book: Book) -> String { "path:" + book.path }
+
+    func aiNote(_ shelf: Shelf) -> AINote? { aiNotes[aiKey(shelf)] }
+    func aiNote(_ book: Book) -> AINote? { aiNotes[aiKey(book)] }
+
+    /// Items left out because their names look like personal documents or credentials.
+    func aiWithheld(_ shelf: Shelf) -> Int {
+        guard CatalogReport.isCollection(shelf), !Self.privateShelves.contains(shelf.id) else { return 0 }
+        return shelf.books.filter { !$0.nested && $0.kind != .secret && AIPrivacy.isSensitive(($0.path as NSString).lastPathComponent) }.count
+    }
+
+    /// Collections are recognised item by item; other shelves as a whole. Everything is passed through `AIPrivacy`.
+    func aiTargets(_ shelf: Shelf) -> [(key: String, subject: AISubject)] {
+        let blocked = aiConfig.blockedWords ?? []
+        return rawTargets(shelf).map { t in
+            var s = t.subject
+            s.title = AIPrivacy.clean(s.title, blocked: blocked)
+            s.summary = AIPrivacy.clean(s.summary, blocked: blocked)
+            s.paths = s.paths.map { AIPrivacy.clean($0, blocked: blocked) }
+            return (t.key, s)
+        }
+    }
+
+    private func rawTargets(_ shelf: Shelf) -> [(key: String, subject: AISubject)] {
+        guard shelf.category != .system, !Self.privateShelves.contains(shelf.id) else { return [] }
+        if CatalogReport.isCollection(shelf) {
+            return shelf.books.filter {
+                !$0.nested && $0.kind != .secret && !AIPrivacy.isSensitive(($0.path as NSString).lastPathComponent)
+            }.map { b in
+                (aiKey(b), AISubject(id: "", title: (b.path as NSString).lastPathComponent, category: shelf.category.rawValue,
+                                     summary: [shelf.title, b.note].compactMap { $0 }.joined(separator: "；"),
+                                     paths: [Fmt.path(b.path)], kinds: [b.kind.rawValue], size: Fmt.size(b.size),
+                                     cameFrom: eraName(b.era), lastActive: Fmt.day(b.activity ?? b.modified),
+                                     usedSinceArrival: usedLabel(used(b))))
+            }
+        }
+        let books = shelf.books.filter { $0.kind != .secret }
+        guard !books.isEmpty else { return [] }
+        return [(aiKey(shelf), AISubject(id: "", title: shelf.title, category: shelf.category.rawValue, summary: shelf.summary,
+                                         paths: books.prefix(10).map { Fmt.path($0.path) },
+                                         kinds: Array(Set(books.map(\.kind.rawValue))).sorted(), size: Fmt.size(shelf.size),
+                                         cameFrom: eraName(shelf.era), lastActive: Fmt.day(shelf.lastActive),
+                                         usedSinceArrival: usedLabel(shelf.usedSinceArrival)))]
+    }
+
+    private func usedLabel(_ used: Bool?) -> String {
+        switch used { case true?: return "用过"; case false?: return "没用过"; default: return "无记录" }
+    }
+
+    func aiPendingCount(_ shelves: [Shelf]) -> Int {
+        shelves.flatMap(aiTargets).filter { aiNotes[$0.key] == nil }.count
+    }
+
+    /// Asks the AI about everything on these shelves it hasn't seen yet (or again, with `force`).
+    func recognise(_ shelves: [Shelf], force: Bool = false) {
+        var targets = shelves.flatMap(aiTargets)
+        if !force { targets = targets.filter { aiNotes[$0.key] == nil } }
+        run(targets)
+    }
+
+    /// A whole category at once: confirmed first, since it can be many requests.
+    struct PendingRecognition: Identifiable {
+        let id = UUID()
+        let shelves: [Shelf]
+        let count: Int
+        let withheld: Int
+    }
+
+    var pendingRecognition: PendingRecognition?
+
+    func requestRecognition(_ shelves: [Shelf]) {
+        guard aiReady else { aiError = "先在设置里填好 AI 的接口地址和模型（⌘,）"; return }
+        let count = aiPendingCount(shelves)
+        guard count > 0 else { return }
+        pendingRecognition = PendingRecognition(shelves: shelves, count: count, withheld: shelves.map(aiWithheld).reduce(0, +))
+    }
+
+    func confirmRecognition() {
+        guard let p = pendingRecognition else { return }
+        pendingRecognition = nil
+        recognise(p.shelves)
+    }
+
+    var aiServiceName: String {
+        AIConfig.presets.first { $0.baseURL == aiConfig.baseURL }?.name ?? (URL(string: aiConfig.baseURL)?.host ?? aiConfig.baseURL)
+    }
+
+    func recognise(item book: Book, in shelf: Shelf) {
+        run(aiTargets(shelf).filter { $0.key == aiKey(book) })
+    }
+
+    private func run(_ targets: [(key: String, subject: AISubject)]) {
+        guard aiProgress == nil, !targets.isEmpty else { return }
+        guard aiReady else { aiError = "先在设置里填好 AI 的接口地址和模型（⌘,）"; return }
+        aiError = nil
+        let client = AIClient(config: aiConfig, key: AIKey.read(for: aiConfig.baseURL))
+        let batches = stride(from: 0, to: targets.count, by: AIClient.batchSize).map {
+            Array(targets[$0..<min($0 + AIClient.batchSize, targets.count)])
+        }
+        aiProgress = "AI 识别中…"
+        aiTask = Task {
+            for (n, batch) in batches.enumerated() {
+                if Task.isCancelled { break }
+                aiProgress = batches.count > 1 ? "AI 识别中 \(n + 1)/\(batches.count) 批" : "AI 识别中…"
+                var keys = [String: String]()
+                let subjects = batch.enumerated().map { i, t -> AISubject in
+                    var s = t.subject
+                    s.id = String(i + 1)
+                    keys[s.id] = t.key
+                    return s
+                }
+                do {
+                    let notes = try await client.recognise(subjects)
+                    for (id, note) in notes { if let key = keys[id] { aiNotes[key] = note } }
+                    AINotes.save(aiNotes)
+                } catch is CancellationError {
+                    break
+                } catch {
+                    if (error as? URLError)?.code == .cancelled { break }
+                    aiError = error.localizedDescription
+                    break
+                }
+            }
+            aiProgress = nil
+            aiTask = nil
+        }
+    }
+
+    func cancelRecognition() {
+        aiTask?.cancel()
+    }
+
+    func forget(_ key: String) {
+        aiNotes[key] = nil
+        AINotes.save(aiNotes)
+    }
+
     func openColdRoom() {
         try? FileManager.default.createDirectory(atPath: ColdStorage.root, withIntermediateDirectories: true)
         NSWorkspace.shared.open(URL(fileURLWithPath: ColdStorage.root))

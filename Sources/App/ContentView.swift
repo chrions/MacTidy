@@ -40,6 +40,22 @@ struct ContentView: View {
         } message: { p in
             Text(pendingMessage(p))
         }
+        .alert("用 AI 识别 \(model.pendingRecognition?.count ?? 0) 项？",
+               isPresented: Binding(get: { model.pendingRecognition != nil }, set: { if !$0 { model.pendingRecognition = nil } }),
+               presenting: model.pendingRecognition) { _ in
+            Button("开始识别") { model.confirmRecognition() }
+            Button("取消", role: .cancel) {}
+        } message: { p in
+            let batches = (p.count + AIClient.batchSize - 1) / AIClient.batchSize
+            Text("会分 \(batches) 次请求发给「\(model.aiServiceName)」，只发送名称、路径、类型、大小和日期，不读取文件内容。"
+                 + (p.withheld > 0 ? "\n另有 \(p.withheld) 项名字像证件、合同或密钥，不会发送。" : ""))
+        }
+        .alert("AI 识别没成功", isPresented: Binding(get: { model.aiError != nil }, set: { if !$0 { model.aiError = nil } })) {
+            SettingsLink { Text("打开设置") }
+            Button("好", role: .cancel) {}
+        } message: {
+            Text((model.aiError ?? "") + "\n\n已经识别好的结果都保存了。")
+        }
         .overlay(alignment: .bottom) {
             if let outcome = model.outcome {
                 OutcomeBar(outcome: outcome).padding(16)
@@ -186,6 +202,11 @@ private struct ScanStatus: View {
             if model.scanning {
                 ProgressView().controlSize(.small)
                 Text("正在扫描：\(model.progress)").lineLimit(1)
+            } else if let ai = model.aiProgress {
+                ProgressView().controlSize(.small)
+                Text(ai).lineLimit(1)
+                Spacer()
+                Button("停止") { model.cancelRecognition() }.buttonStyle(.borderless).font(.caption)
             } else if let c = model.catalog {
                 Text("扫描于 \(c.generatedAt.formatted(.dateTime.month().day().hour().minute()))")
             }

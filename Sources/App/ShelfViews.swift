@@ -48,6 +48,13 @@ struct CategoryBrowser: View {
             Text(category?.blurb ?? "名称、说明或路径里包含「\(model.search)」").font(.callout).foregroundStyle(.secondary)
             Text("\(shelves.count) 个书架 · \(Fmt.size(shelves.map(\.size).reduce(0, +)))")
                 .font(.caption).foregroundStyle(.secondary).monospacedDigit().padding(.top, 2)
+            if category == .orphans || category == .personal {
+                let pending = model.aiPendingCount(shelves)
+                if pending > 0 {
+                    AIButton(title: "用 AI 识别这一类（\(pending) 项）") { model.requestRecognition(shelves) }
+                        .padding(.top, 6)
+                }
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -82,7 +89,8 @@ struct ShelfRow: View {
 
     private var subtitle: String {
         if CatalogReport.isCollection(shelf) { return "\(model.visibleBooks(shelf).count) 项 · \(shelf.summary)" }
-        return shelf.category == .system ? shelf.summary : "\(model.eraName(shelf.era)) · \(shelf.summary)"
+        let summary = model.aiNote(shelf).map { "AI：" + ($0.owner ?? $0.what) } ?? shelf.summary
+        return shelf.category == .system ? summary : "\(model.eraName(shelf.era)) · \(summary)"
     }
 }
 
@@ -102,6 +110,8 @@ struct ShelfDetail: View {
                     }
 
                     ShelfActions(shelf: shelf)
+
+                    AICard(shelf: shelf)
 
                     HStack(alignment: .top, spacing: 16) {
                         Fact(label: "大小", value: Fmt.size(shelf.size))
@@ -157,6 +167,75 @@ struct ShelfDetail: View {
         case true?: return "用过"
         case false?: return "没用过"
         default: return "无记录"
+        }
+    }
+}
+
+/// Starts recognition, or leads to Settings when no endpoint is configured yet.
+struct AIButton: View {
+    @Environment(AppModel.self) private var model
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        if model.aiReady {
+            Button(action: action) { Label(title, systemImage: "sparkles") }
+                .buttonStyle(.bordered)
+                .disabled(model.aiProgress != nil)
+        } else {
+            SettingsLink { Label("设置 AI 识别…", systemImage: "sparkles") }
+                .buttonStyle(.bordered)
+        }
+    }
+}
+
+/// What the AI said about this shelf, or how far it got with the items of a collection.
+private struct AICard: View {
+    @Environment(AppModel.self) private var model
+    let shelf: Shelf
+
+    var body: some View {
+        let targets = model.aiTargets(shelf)
+        if !targets.isEmpty {
+            if CatalogReport.isCollection(shelf) {
+                let pending = targets.filter { model.aiNotes[$0.key] == nil }.count
+                HStack(spacing: 10) {
+                    if pending > 0 {
+                        AIButton(title: "用 AI 识别这 \(pending) 项") { model.requestRecognition([shelf]) }
+                    }
+                    if pending < targets.count {
+                        Text("已识别 \(targets.count - pending) 项，结果在下面每一项里").font(.caption).foregroundStyle(.secondary)
+                        Button("全部重新识别") { model.recognise([shelf], force: true) }
+                            .buttonStyle(.borderless).font(.caption).disabled(model.aiProgress != nil)
+                    }
+                    let withheld = model.aiWithheld(shelf)
+                    if withheld > 0 {
+                        Text("\(withheld) 项名字像证件、合同或密钥，不发给 AI").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else if let note = model.aiNote(shelf) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").font(.caption)
+                        Text("AI 识别").font(.caption.weight(.medium))
+                        if let advice = note.advice { Tag("建议\(advice)", filled: advice == "可以删") }
+                        Spacer()
+                        Button("重新识别") { model.recognise([shelf], force: true) }
+                            .buttonStyle(.borderless).font(.caption).disabled(model.aiProgress != nil)
+                    }
+                    .foregroundStyle(.secondary)
+                    if let owner = note.owner { Text(owner).font(.headline) }
+                    Text(note.what).textSelection(.enabled)
+                    if let reason = note.reason { Text(reason).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+                    Text("\(note.model) · \(Fmt.day(note.date)) · 仅根据名称和路径推断，供参考")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10).fill(.primary.opacity(0.04)))
+            } else {
+                AIButton(title: "问问 AI 这是什么") { model.recognise([shelf]) }
+            }
         }
     }
 }
@@ -217,6 +296,10 @@ struct BookRow: View {
                     if book.protected { Image(systemName: "lock").font(.caption2).foregroundStyle(.tertiary).help("需要管理员权限或受系统保护") }
                     if showEra, model.flaggedUnused(book, in: shelf) { Tag("没用过") }
                     if keptHere { Tag("已保留") }
+                    if let n = itemNote {
+                        if let g = n.group { Tag(g) }
+                        if let a = n.advice { Tag("建议\(a)", filled: a == "可以删") }
+                    }
                     if book.nested { Text("包含在上面某一项里").font(.caption2).foregroundStyle(.tertiary) }
                 }
                 Text(Fmt.path(book.path))
@@ -225,6 +308,10 @@ struct BookRow: View {
                     .textSelection(.enabled)
                 if !meta.isEmpty {
                     Text(meta).font(.caption).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
+                }
+                if let n = itemNote {
+                    Text("AI：" + [n.owner, n.what, n.reason].compactMap { $0 }.joined(separator: "。"))
+                        .font(.caption).lineLimit(4).textSelection(.enabled)
                 }
             }
             Spacer(minLength: 12)
@@ -245,12 +332,18 @@ struct BookRow: View {
             Button("在访达中显示") { model.reveal(book.path) }
             if showEra {
                 Divider()
+                if CatalogReport.isCollection(shelf), model.aiReady, model.aiTargets(shelf).contains(where: { $0.key == model.aiKey(book) }) {
+                    Button(itemNote == nil ? "问问 AI 这是什么" : "让 AI 重新识别") { model.recognise(item: book, in: shelf) }
+                        .disabled(model.aiProgress != nil)
+                }
                 Button(keptHere ? "取消保留" : "保留，不再提醒") { model.toggleKeep(book) }
                 Button("冷藏") { model.request(.freeze, [book], in: shelf) }.disabled(refusal != nil)
                 Button("移到废纸篓") { model.request(.trash, [book], in: shelf) }.disabled(refusal != nil)
             }
         }
     }
+
+    private var itemNote: AINote? { CatalogReport.isCollection(shelf) ? model.aiNote(book) : nil }
 
     private func rowButton(_ symbol: String, help: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol) }

@@ -23,5 +23,9 @@ struct MacTidyApp: App {
                     .disabled(model.scanning)
             }
         }
+
+        Settings {
+            SettingsView().environment(model)
+        }
     }
 }
