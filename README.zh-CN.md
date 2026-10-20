@@ -4,6 +4,8 @@
 
 给一台搬过好几次家的 Mac 做一次只读的「考古编目」。
 
+**[下载最新版本](https://github.com/chrions/MacTidy/releases/latest)** · macOS 14 以上 · Apple 芯片 · 免费开源
+
 迁移助理会把所有东西原样搬过来：三台 Mac 之前就不用的应用、它们留下的数据、旧的 Intel 工具链、已卸载软件的开机服务、散落在个人文件夹里的密钥和历史记录。MacTidy 像图书管理员一样把这些东西清点一遍，并回答三个问题：
 
 - **它是谁的？** 属于哪个应用、工具或系统功能，或者主人已经不在了。
@@ -33,12 +35,22 @@
 - **从不直接删除**，最多只是移到废纸篓。
 - **AI 识别需要你主动开启。** 只发送名称、路径（个人文件夹写成 `~`）、类型、大小和日期，从不读取文件内容。名字像证件、合同、密钥的东西一律不发；7 位以上的数字会被打码；你还可以设置「不发送的词」。API 密钥保存在钥匙串里。
 
-## 系统要求
+## 下载
 
-- macOS 14 Sonoma 或更新版本，Apple 芯片。
-- 编译需要 Xcode 或命令行工具（`xcode-select --install`），Swift 5.9 以上。
+需要 macOS 14 Sonoma 或更新版本，Apple 芯片。
 
-## 编译和运行
+1. 从[最新版本](https://github.com/chrions/MacTidy/releases/latest)下载 `MacTidy-<版本>.zip`，解压后把 `MacTidy.app` 拖进「应用程序」文件夹。
+2. 第一次打开。MacTidy 暂时还没经过 Apple 公证，macOS 会提示无法验证开发者：
+   - **macOS 15 Sequoia 及更新版本**：先点「完成」，再打开「系统设置 → 隐私与安全性」，滚到下面，在 MacTidy 旁边点**仍要打开**。
+   - **macOS 14 Sonoma**：右键点 `MacTidy.app`，选**打开**，再点一次**打开**。
+   - 也可以在「终端」里运行：`xattr -dr com.apple.quarantine /Applications/MacTidy.app`
+3. 想要编目更完整，请在「系统设置 → 隐私与安全性」里给 MacTidy 开启**完全磁盘访问权限**。不开的话，有些应用的数据只能看到名字，看不到大小。
+
+如果不放心下载来的程序，也可以按下面的方法自己编译，一分钟左右就好。
+
+## 从源码编译
+
+需要 Xcode 或命令行工具（`xcode-select --install`），Swift 5.9 以上。
 
 ```sh
 git clone https://github.com/chrions/MacTidy.git
@@ -50,7 +62,7 @@ cd MacTidy
 
 它还会用一个自签名证书给应用签名，证书放在单独的钥匙串 `~/Library/Keychains/mactidy-signing.keychain-db` 里。这样重新编译后，「完全磁盘访问权限」依然有效；临时签名每次编译都会变，权限会悄悄失效。
 
-想要编目更完整，请在「系统设置 → 隐私与安全性」里给 MacTidy 开启**完全磁盘访问权限**。不开的话，有些应用的数据只能看到名字，看不到大小。
+`./build.sh release` 会编译同样的应用但不安装，并打包成 `build/MacTidy-<版本>.zip`。
 
 ### 命令行工具
 

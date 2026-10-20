@@ -1,6 +1,7 @@
 #!/bin/zsh
 # ./build.sh        Build the command-line tool and the app, install the app in /Applications and reopen it
 # ./build.sh cli    Build only the command-line tool
+# ./build.sh release  Build and package build/MacTidy-<version>.zip for a GitHub release, without installing
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
@@ -87,6 +88,16 @@ EOF
 fi
 codesign --force --keychain "$KC" --sign "$(signing_identity)" "$APP"
 echo "Built: $PWD/$APP"
+
+if [[ "${1:-}" == "release" ]]; then
+  VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
+  ZIP="build/MacTidy-$VERSION.zip"
+  rm -f "$ZIP"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+  shasum -a 256 "$ZIP"
+  echo "Packaged: $PWD/$ZIP"
+  exit 0
+fi
 
 if pkill -x "$EXEC"; then
   for _ in {1..50}; do pgrep -x "$EXEC" >/dev/null || break; sleep 0.1; done

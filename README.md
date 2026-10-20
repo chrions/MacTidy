@@ -4,6 +4,8 @@
 
 A read-only catalog of everything on a Mac that has been migrated from one machine to the next for years.
 
+**[Download the latest version](https://github.com/chrions/MacTidy/releases/latest)** · macOS 14+ · Apple silicon · free and open source
+
 Migration Assistant brings everything along: apps you stopped using three Macs ago, the data they left behind, old Intel toolchains, launch agents of uninstalled software, keys and histories in your home folder. MacTidy takes stock of all of it, like a librarian, and answers three questions for each thing:
 
 - **Who owns it?** Which app, tool or system feature it belongs to, or that the owner is gone.
@@ -33,12 +35,22 @@ Things you're unsure about can go to **cold storage** first: they're moved aside
 - **Things are never deleted outright**; they only go to the Trash.
 - **AI recognition is opt-in.** It sends only names, paths (with your home folder written as `~`), kinds, sizes and dates. File contents are never read. Items named like ID documents, contracts or keys aren't sent at all. Numbers of 7 or more digits are masked, and you can add your own words to never send. The API key is stored in your keychain.
 
-## Requirements
+## Download
 
-- macOS 14 Sonoma or later, on Apple silicon.
-- To build: Xcode or the Command Line Tools (`xcode-select --install`), Swift 5.9+.
+Requires macOS 14 Sonoma or later on Apple silicon.
 
-## Build and run
+1. Download `MacTidy-<version>.zip` from the [latest release](https://github.com/chrions/MacTidy/releases/latest), unzip it, and move `MacTidy.app` to Applications.
+2. Open it for the first time. MacTidy isn't notarized by Apple yet, so macOS will say it can't verify the developer.
+   - **macOS 15 Sequoia and later**: click Done, then go to System Settings → Privacy & Security, scroll down, and click **Open Anyway** next to MacTidy.
+   - **macOS 14 Sonoma**: right-click `MacTidy.app`, choose **Open**, then click **Open** again.
+   - Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/MacTidy.app`
+3. For a complete catalog, grant MacTidy **Full Disk Access** in System Settings → Privacy & Security. Without it, some apps' data is listed by name only.
+
+If you'd rather not trust a downloaded binary, build it yourself, as described below. It only takes a minute.
+
+## Build from source
+
+You need Xcode or the Command Line Tools (`xcode-select --install`), and Swift 5.9 or later.
 
 ```sh
 git clone https://github.com/chrions/MacTidy.git
@@ -50,7 +62,7 @@ cd MacTidy
 
 It also signs the app with a self-signed identity kept in its own keychain (`~/Library/Keychains/mactidy-signing.keychain-db`). That way the Full Disk Access permission survives rebuilds; an ad-hoc signature changes on every build and silently invalidates the permission.
 
-For a complete catalog, grant MacTidy **Full Disk Access** in System Settings → Privacy & Security. Without it, some apps' data is listed by name only.
+`./build.sh release` builds the same app without installing it and packages it as `build/MacTidy-<version>.zip`.
 
 ### Command-line tool
 
