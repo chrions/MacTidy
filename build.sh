@@ -1,6 +1,6 @@
 #!/bin/zsh
-# ./build.sh        编译命令行工具和应用，并把应用安装到「应用程序」后重新打开
-# ./build.sh cli    只编译命令行工具
+# ./build.sh        Build the command-line tool and the app, install the app in /Applications and reopen it
+# ./build.sh cli    Build only the command-line tool
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
@@ -21,7 +21,7 @@ fi
 SWIFTC=(swiftc -O -swift-version 5 -target arm64-apple-macos14.0 "${EXTRA_FLAGS[@]}" -module-cache-path build/ModuleCache)
 
 "${SWIFTC[@]}" Sources/Core/*.swift Sources/CLI/*.swift -o build/mactidy
-echo "已生成: $PWD/build/mactidy"
+echo "Built: $PWD/build/mactidy"
 [[ "${1:-}" == "cli" ]] && exit 0
 
 APP_NAME="MacTidy.app"
@@ -43,6 +43,9 @@ if [[ ! -f Resources/AppIcon.icns || Tools/make_icon.swift -nt Resources/AppIcon
   iconutil -c icns "$ICONSET" -o Resources/AppIcon.icns
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+for lproj in Resources/*.lproj; do
+  ditto "$lproj" "$APP/Contents/Resources/$(basename "$lproj")"
+done
 
 "${SWIFTC[@]}" -parse-as-library Sources/Core/*.swift Sources/App/*.swift -o "$APP/Contents/MacOS/$EXEC"
 
@@ -83,7 +86,7 @@ EOF
   rm -rf "$TMP"
 fi
 codesign --force --keychain "$KC" --sign "$(signing_identity)" "$APP"
-echo "已生成: $PWD/$APP"
+echo "Built: $PWD/$APP"
 
 if pkill -x "$EXEC"; then
   for _ in {1..50}; do pgrep -x "$EXEC" >/dev/null || break; sleep 0.1; done
@@ -91,5 +94,5 @@ fi
 rm -rf "/Applications/$APP_NAME"
 ditto "$APP" "/Applications/$APP_NAME"
 touch "/Applications/$APP_NAME"
-echo "已安装: /Applications/$APP_NAME"
+echo "Installed: /Applications/$APP_NAME"
 open "/Applications/$APP_NAME"

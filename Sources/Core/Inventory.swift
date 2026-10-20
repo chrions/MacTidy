@@ -67,7 +67,7 @@ final class Inventory {
             return url.deletingPathExtension().lastPathComponent
         }
         if let last = lower.split(separator: ".").last, last.count >= 3, commands[String(last)] != nil {
-            return "命令 \(last)"
+            return L("Command \(String(last))")
         }
         return nil
     }
@@ -91,7 +91,7 @@ final class Inventory {
         }) {
             return app.name
         }
-        if commands[lower] != nil || commands[name] != nil { return "命令 \(name)" }
+        if commands[lower] != nil || commands[name] != nil { return L("Command \(name)") }
         return nil
     }
 

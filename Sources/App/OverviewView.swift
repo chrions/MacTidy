@@ -24,21 +24,21 @@ struct OverviewView: View {
     private func header(_ catalog: Catalog) -> some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("这台 Mac").font(.system(size: 34, weight: .semibold))
+                Text("This Mac").font(.system(size: 34, weight: .semibold))
                 let total = catalog.shelves.map(\.size).reduce(0, +)
                 let name = catalog.eras.first(where: \.isCurrent)?.name ?? catalog.machine
-                Text("\(name) · 已编目 \(Fmt.size(total)) · \(catalog.shelves.count) 个书架 · 扫描于 \(Fmt.day(catalog.generatedAt))")
+                Text(L("\(name) · \(Fmt.size(total)) catalogued · \(catalog.shelves.count) shelves · scanned \(Fmt.day(catalog.generatedAt))"))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 6) {
                 Button { model.scan() } label: {
-                    Label(model.scanning ? "正在扫描…" : "全盘扫描", systemImage: "arrow.clockwise")
+                    Label(model.scanning ? L("Scanning…") : L("Scan Whole Mac"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(model.scanning)
-                .help("重新盘点整台 Mac，只读，一般一两分钟")
+                .help("Take stock of the whole Mac again; read-only, usually a minute or two")
                 if model.scanning {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
@@ -56,11 +56,11 @@ struct OverviewView: View {
         HStack(spacing: 12) {
             Image(systemName: "lock")
             VStack(alignment: .leading, spacing: 2) {
-                Text("授予「完全磁盘访问权限」后，统计会更完整").font(.callout.weight(.medium))
-                Text("部分应用的数据受系统保护，现在只能看到名字，算不出大小。").font(.caption).foregroundStyle(.secondary)
+                Text("Grant Full Disk Access for a more complete catalog").font(.callout.weight(.medium))
+                Text("Some apps' data is protected by macOS; for now only names are visible, not sizes.").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("打开设置") {
+            Button("Open Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
             }
         }
@@ -70,7 +70,7 @@ struct OverviewView: View {
 
     private var categories: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "目录")
+            SectionTitle(title: L("Catalog"))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
                 ForEach(Category.allCases, id: \.self) { c in
                     CategoryCard(category: c)
@@ -81,10 +81,10 @@ struct OverviewView: View {
 
     private var unpacked: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "搬来后没用过", subtitle: "从旧 Mac 迁移过来以后，再也没有打开或改动过。最值得先看看。")
+            SectionTitle(title: L("Not Used Since Arriving"), subtitle: L("Never opened or changed since being migrated from an older Mac. The best place to start."))
             let list = Array(model.units.filter { model.flaggedUnused($0) }.sorted { $0.size > $1.size }.prefix(12))
             if list.isEmpty {
-                Text("没有发现").foregroundStyle(.secondary)
+                Text("Nothing found").foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(list.enumerated()), id: \.offset) { i, unit in
@@ -110,11 +110,11 @@ private struct CategoryCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: category.symbol).font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(category.rawValue).font(.headline)
+                    Text(category.name).font(.headline)
                     Text(category.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
                 }
                 Text(Fmt.size(model.size(of: category))).font(.title2.weight(.medium)).monospacedDigit()
-                Text("\(list.count) 个书架").font(.caption).foregroundStyle(.secondary)
+                Text(L("\(list.count) shelves")).font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
@@ -137,7 +137,7 @@ private struct UnitRow: View {
                 Image(systemName: unit.category.symbol).foregroundStyle(.secondary).frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(unit.title).lineLimit(1).truncationMode(.middle)
-                    Text("来自 \(model.eraName(unit.era)) · 最后动静 \(Fmt.day(unit.lastActive))")
+                    Text(L("From \(model.eraName(unit.era)) · last activity \(Fmt.day(unit.lastActive))"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -167,15 +167,15 @@ struct EraTimeline: View {
         let total = max(sizes.reduce(0, +), 1)
         let migrated = eras.filter { $0.machineID != nil }.count > 1
         VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(title: "年代", subtitle: migrated
-                         ? "每样东西按它最早出现的时间，归到当时在用的那台 Mac。点名字可以改成你记得的叫法。"
-                         : "没有发现从别的 Mac 迁移过来的痕迹，东西都归在这台 Mac；更早的来自压缩包、拷贝或备份。")
+            SectionTitle(title: L("Eras"), subtitle: migrated
+                         ? L("Each thing belongs to the Mac in use when it first appeared. Click a name to call it what you remember it by.")
+                         : L("No sign of migration from another Mac, so everything belongs to this one; older things came from archives, copies or backups."))
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     ForEach(Array(eras.enumerated()), id: \.offset) { i, e in
                         let w = max(geo.size.width * CGFloat(sizes[i]) / CGFloat(total) - 2, sizes[i] > 0 ? 3 : 0)
                         Rectangle().fill(.primary.opacity(eraShade(i, count: eras.count))).frame(width: w)
-                            .help("\(e.name)：\(Fmt.size(sizes[i]))")
+                            .help(L("\(e.name): \(Fmt.size(sizes[i]))"))
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -196,13 +196,13 @@ struct EraTimeline: View {
                                 Text(e.name).font(.callout.weight(.medium)).multilineTextAlignment(.leading)
                             }
                             .buttonStyle(.plain)
-                            .help("改个名字，比如「公司配的 Intel MacBook」")
-                            if e.isCurrent { Tag("现在") }
+                            .help("Rename it, e.g. “Intel MacBook from work”")
+                            if e.isCurrent { Tag(L("Now")) }
                         }
-                        Text(e.start.map { "\(Fmt.month($0)) 起" } ?? e.end.map { "\(Fmt.month($0)) 以前" } ?? "第一台 Mac 之前").font(.caption).foregroundStyle(.secondary)
-                        Text("\(list.count) 样 · \(Fmt.size(sizes[i]))").font(.caption).monospacedDigit()
+                        Text(e.start.map { L("Since \(Fmt.month($0))") } ?? e.end.map { L("Before \(Fmt.month($0))") } ?? L("Before the first Mac")).font(.caption).foregroundStyle(.secondary)
+                        Text(L("\(list.count) items · \(Fmt.size(sizes[i]))")).font(.caption).monospacedDigit()
                         if !e.isCurrent, !unused.isEmpty {
-                            Text("没用过 \(unused.count) 样 · \(Fmt.size(unused.map(\.size).reduce(0, +)))")
+                            Text(L("\(unused.count) unused · \(Fmt.size(unused.map(\.size).reduce(0, +)))"))
                                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                         }
                     }
@@ -210,14 +210,14 @@ struct EraTimeline: View {
                 }
             }
         }
-        .alert("给这段时期起个名字", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("名字", text: $newName)
-            Button("保存") { if let e = renaming { model.renameEra(e, to: newName) } }
-            Button("恢复默认") { if let e = renaming { model.renameEra(e, to: "") } }
-            Button("取消", role: .cancel) {}
+        .alert("Name this era", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Save") { if let e = renaming { model.renameEra(e, to: newName) } }
+            Button("Use Default") { if let e = renaming { model.renameEra(e, to: "") } }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text(renaming.map { $0.start.map { "\(Fmt.month($0)) 起用的那台 Mac。" } ?? "第一台 Mac 之前就有的东西。" } ?? "")
-                + Text("比如机型和颜色、公司配的还是自己买的，方便你回忆。")
+            Text(renaming.map { $0.start.map { L("The Mac used from \(Fmt.month($0)).") } ?? L("Things from before the first Mac.") } ?? "")
+                + Text(" ") + Text("The model and color, or whether it was from work, might help you remember.")
         }
     }
 }

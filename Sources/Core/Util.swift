@@ -105,21 +105,6 @@ func formatSize(_ bytes: Int64?) -> String {
     return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
 
-func formatAge(_ date: Date?, now: Date = Date()) -> String {
-    guard let date else { return "无记录" }
-    let days = Int(now.timeIntervalSince(date) / 86_400)
-    let f = DateFormatter()
-    f.dateFormat = "yyyy-MM-dd"
-    let ago: String
-    switch days {
-    case ..<1: ago = "今天"
-    case ..<31: ago = "\(days) 天前"
-    case ..<365: ago = "\(days / 30) 个月前"
-    default: ago = String(format: "%.1f 年前", Double(days) / 365)
-    }
-    return "\(f.string(from: date))（\(ago)）"
-}
-
 func compareVersions(_ a: String, _ b: String) -> Bool {
     let pa = a.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
     let pb = b.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }

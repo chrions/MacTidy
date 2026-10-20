@@ -21,8 +21,8 @@ struct ColdBatch: Codable, Identifiable {
 
 /// A folder on this Mac where uncertain things wait, still restorable, before being deleted for good.
 enum ColdStorage {
-    static let folderName = "MacTidy 冷藏区"
-    static let manifestName = "冷藏清单.json"
+    static let folderName = "MacTidy Cold Storage"
+    static let manifestName = "manifest.json"
     /// After this long without being missed, frozen things are suggested for deletion.
     static let staleDays = 180
     static var root: String { CatalogStore.home + "/" + folderName }
@@ -57,7 +57,7 @@ enum ColdStorage {
             } catch {
                 let unrolled = moved.reversed().filter { (try? fm.moveItem(atPath: $0.to, toPath: $0.from)) == nil }
                 if unrolled.isEmpty { try? fm.removeItem(atPath: dir) }
-                return (nil, [(b.path, Trash.describe(error))] + unrolled.map { ($0.from, "没能挪回原处，现在在冷藏区：\($0.to)") })
+                return (nil, [(b.path, Trash.describe(error))] + unrolled.map { ($0.from, L("Couldn’t move it back; it is now in cold storage at \($0.to)")) })
             }
         }
         var skeleton = shelf
@@ -66,7 +66,7 @@ enum ColdStorage {
         do {
             try save(batch)
         } catch {
-            return (batch, [(dir, "冷藏清单没能写入：\(error.localizedDescription)")])
+            return (batch, [(dir, L("Couldn’t write the manifest: \(error.localizedDescription)"))])
         }
         return (batch, [])
     }
@@ -84,10 +84,10 @@ enum ColdStorage {
                 try fm.moveItem(atPath: src, toPath: item.book.path)
                 restored.append(item.book)
             } catch is Conflict {
-                failed.append((item.book.path, "原位置已有同名的东西"))
+                failed.append((item.book.path, L("Something with the same name is already at the original location")))
                 remaining.append(item)
             } catch {
-                failed.append((item.book.path, fm.fileExists(atPath: src) ? Trash.describe(error) : "冷藏区里已经找不到了"))
+                failed.append((item.book.path, fm.fileExists(atPath: src) ? Trash.describe(error) : L("No longer in cold storage")))
                 if fm.fileExists(atPath: src) { remaining.append(item) }
             }
         }
@@ -105,17 +105,17 @@ enum ColdStorage {
     static func discard(_ batch: ColdBatch) -> (record: TrashRecord?, failure: String?) {
         let dir = directory(of: batch)
         let book = Book(path: dir, kind: .folder, size: batch.size, created: batch.date,
-                        note: "冷藏的「\(batch.shelf.title)」，共 \(batch.items.count) 项")
+                        note: L("“\(batch.shelf.title)” from cold storage, \(batch.items.count) items"))
         let result = Trash.move([book], shelf: nil)
         return (result.moved.first, result.failed.first?.reason)
     }
 
     private struct Conflict: Error {}
 
-    /// Keeps the original layout readable: `主目录/Library/Caches/x`, `根目录/Applications/X.app`.
+    /// Keeps the original layout readable: `Home/Library/Caches/x`, `Root/Applications/X.app`.
     private static func storedPath(for path: String) -> String {
         let home = CatalogStore.home
-        return path.hasPrefix(home + "/") ? "主目录/" + path.dropFirst(home.count + 1) : "根目录" + path
+        return path.hasPrefix(home + "/") ? "Home/" + path.dropFirst(home.count + 1) : "Root" + path
     }
 
     private static func uniqueID(for title: String) -> String {
@@ -140,14 +140,14 @@ enum ColdStorage {
     }
 
     private static func writeReadme() {
-        let path = root + "/说明.txt"
+        let path = root + "/README.txt"
         guard !fm.fileExists(atPath: path) else { return }
-        let text = """
-        这里是 MacTidy 的冷藏区。
-        拿不准还要不要的东西先挪到这里，原来的位置记在每个文件夹的「\(manifestName)」里。
-        想放回去，请在 MacTidy 的「冷藏区」里点「放回」；手动挪动这里的东西，MacTidy 就放不回去了。
-        冷藏超过半年都没想起来的，一般就可以放心删了。
-        """
+        let text = L("""
+        This is MacTidy’s cold storage.
+        Things you weren’t sure about wait here; each folder’s \(manifestName) records where they came from.
+        To put something back, use Put Back in MacTidy’s Cold Storage. If you move things here by hand, MacTidy can’t put them back.
+        Anything you haven’t missed for half a year can usually be deleted.
+        """)
         try? text.write(toFile: path, atomically: true, encoding: .utf8)
     }
 

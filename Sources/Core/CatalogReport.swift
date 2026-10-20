@@ -12,7 +12,7 @@ struct CatalogReport {
     private var arrival: Date? { catalog.eras.first(where: \.isCurrent)?.start }
 
     func eraName(_ index: Int?) -> String {
-        guard let index, let era = catalog.eras.first(where: { $0.index == index }) else { return "不详" }
+        guard let index, let era = catalog.eras.first(where: { $0.index == index }) else { return L("Unknown") }
         return era.name
     }
 
@@ -25,9 +25,9 @@ struct CatalogReport {
 
     private func usedText(_ s: Shelf) -> String {
         switch s.usedSinceArrival {
-        case true?: return "搬来后用过"
-        case false?: return "**搬来后没用过**"
-        default: return "无使用记录"
+        case true?: return "used since arriving"
+        case false?: return "**not used since arriving**"
+        default: return "no record of use"
         }
     }
 
@@ -56,7 +56,7 @@ struct CatalogReport {
                              lastActive: s.lastActive, used: s.usedSinceArrival)]
             }
             return s.books.filter { !$0.nested }.map { b in
-                Unit(shelfID: s.id, bookPath: b.path, category: s.category, title: "\(s.title)：\(abbreviate(b.path, home: home))",
+                Unit(shelfID: s.id, bookPath: b.path, category: s.category, title: L("\(s.title): \(abbreviate(b.path, home: home))"),
                      size: b.size ?? 0, era: b.era,
                      lastActive: b.activity, used: b.idle ? false : zip2(b.activity, threshold).map { $0 >= $1 })
             }
@@ -69,91 +69,91 @@ struct CatalogReport {
     }
 
     func summary() -> String {
-        var out = ["年代（按每台 Mac 第一次登录的时间推断）："]
+        var out = ["Eras (from when each Mac first logged in):"]
         let all = units
         for era in catalog.eras {
             let list = all.filter { $0.era == era.index }
             guard era.start != nil || !list.isEmpty else { continue }
-            let range = era.start.map { "\(day($0)) 起" } ?? "最早"
+            let range = era.start.map { "from \(day($0))" } ?? "earliest"
             let unused = list.filter { $0.used == false }
-            out.append("  \(era.name)（\(range)）：\(list.count) 样东西，\(formatSize(list.map(\.size).reduce(0, +)))"
-                       + (era.isCurrent ? "" : "；其中搬来后没用过 \(unused.count) 样，\(formatSize(unused.map(\.size).reduce(0, +)))"))
+            out.append("  \(era.name) (\(range)): \(list.count) items, \(formatSize(list.map(\.size).reduce(0, +)))"
+                       + (era.isCurrent ? "" : "; \(unused.count) not used since arriving, \(formatSize(unused.map(\.size).reduce(0, +)))"))
         }
         out.append("")
-        out.append("目录：")
+        out.append("Catalog:")
         for c in Category.allCases {
             let list = catalog.shelves.filter { $0.category == c }
             let unused = all.filter { $0.category == c && $0.used == false }
-            var line = "  \(c.rawValue.padding(toLength: 6, withPad: "　", startingAt: 0)) \(list.count) 个书架，\(formatSize(list.map(\.size).reduce(0, +)))"
-            if !unused.isEmpty { line += "；其中搬来后没用过 \(unused.count) 样，\(formatSize(unused.map(\.size).reduce(0, +)))" }
+            var line = "  \(c.name.padding(toLength: 20, withPad: " ", startingAt: 0)) \(list.count) shelves, \(formatSize(list.map(\.size).reduce(0, +)))"
+            if !unused.isEmpty { line += "; \(unused.count) not used since arriving, \(formatSize(unused.map(\.size).reduce(0, +)))" }
             out.append(line)
         }
         out.append("")
-        out.append("搬到这台 Mac 后从没用过的（最大的 20 样）：")
+        out.append("Never used since moving to this Mac (20 biggest):")
         for u in unpacked.prefix(20) {
-            out.append("  [\(u.category.rawValue)] \(u.title)  \(formatSize(u.size))  来自\(eraName(u.era))，最后动静 \(day(u.lastActive))")
+            out.append("  [\(u.category.name)] \(u.title)  \(formatSize(u.size))  from \(eraName(u.era)), last activity \(day(u.lastActive))")
         }
         return out.joined(separator: "\n")
     }
 
     func markdown() -> String {
-        var md = ["# Mac 图书馆目录", ""]
-        md.append("生成时间：\(day(catalog.generatedAt))　机器：\(catalog.machine)")
+        var md = ["# Mac library catalog", ""]
+        md.append("Generated \(day(catalog.generatedAt)) · Machine: \(catalog.machine)")
         md.append("")
-        md.append("## 年代")
+        md.append("## Eras")
         md.append("")
-        md.append("| 年代 | 开始 | 结束 | 来自这个年代的东西 | 大小 | 搬来后没用过 |")
+        md.append("| Era | From | Until | Items from this era | Size | Not used since arriving |")
         md.append("|---|---|---|---|---|---|")
         let all = units
         for era in catalog.eras {
             let list = all.filter { $0.era == era.index }
             let unused = list.filter { $0.used == false }
-            md.append("| \(era.name) | \(day(era.start)) | \(era.end.map(day) ?? "至今") | \(list.count) 样 | \(formatSize(list.map(\.size).reduce(0, +))) | "
-                      + (era.isCurrent ? "—" : "\(unused.count) 样，\(formatSize(unused.map(\.size).reduce(0, +)))") + " |")
+            md.append("| \(era.name) | \(day(era.start)) | \(era.end.map(day) ?? "now") | \(list.count) | \(formatSize(list.map(\.size).reduce(0, +))) | "
+                      + (era.isCurrent ? "—" : "\(unused.count), \(formatSize(unused.map(\.size).reduce(0, +)))") + " |")
         }
         md.append("")
-        md.append("## 搬来后没用过的东西")
+        md.append("## Not used since arriving")
         md.append("")
-        md.append("从旧 Mac 迁移过来以后，再也没有打开或改动过。最适合优先处理。")
+        md.append("Never opened or changed since being migrated from an older Mac. The best place to start.")
         md.append("")
-        md.append("| 分类 | 名称 | 大小 | 来自 | 最后动静 |")
+        md.append("| Category | Name | Size | From | Last activity |")
         md.append("|---|---|---|---|---|")
         for u in unpacked.prefix(80) {
-            md.append("| \(u.category.rawValue) | \(u.title) | \(formatSize(u.size)) | \(eraName(u.era)) | \(day(u.lastActive)) |")
+            md.append("| \(u.category.name) | \(u.title) | \(formatSize(u.size)) | \(eraName(u.era)) | \(day(u.lastActive)) |")
         }
         for c in Category.allCases {
             let list = catalog.shelves.filter { $0.category == c }.sorted { $0.size > $1.size }
             guard !list.isEmpty else { continue }
             md.append("")
-            md.append("## \(c.rawValue)（\(list.count) 个书架，\(formatSize(list.map(\.size).reduce(0, +)))）")
+            md.append("## \(c.name) (\(list.count) shelves, \(formatSize(list.map(\.size).reduce(0, +))))")
             md.append("")
             md.append(c.blurb)
             for s in list {
                 md.append("")
-                var head = "### \(s.title)　\(formatSize(s.size))"
-                if c != .system { head += "　来自\(eraName(s.era))　\(usedText(s))" }
+                var head = "### \(s.title) · \(formatSize(s.size))"
+                if c != .system { head += " · from \(eraName(s.era)) · \(usedText(s))" }
                 md.append(head)
                 md.append("")
                 var meta = [s.summary]
-                if !s.flags.isEmpty { meta.append(s.flags.joined(separator: "，")) }
-                if let lu = s.lastUsed { meta.append("最后打开 \(day(lu))") }
+                if !s.flags.isEmpty { meta.append(s.flags.joined(separator: ", ")) }
+                if let lu = s.lastUsed { meta.append("last opened \(day(lu))") }
                 if let r = s.reason { meta.append(r) }
-                md.append(meta.joined(separator: "。"))
+                md.append(meta.joined(separator: ". "))
                 md.append("")
                 let shown = s.books.prefix(12)
                 for b in shown {
-                    var line = "- \(b.kind.rawValue)：`\(abbreviate(b.path, home: home))`　\(formatSize(b.size))"
-                    if let e = b.era, c != .system { line += "　\(eraName(e))" }
-                    if let m = b.modified { line += "　改动于 \(day(m))" }
-                    if b.protected { line += "　🔒" }
-                    if let n = b.note, !n.isEmpty { line += "　— \(n)" }
+                    var line = "- \(b.kind.name): `\(abbreviate(b.path, home: home))` · \(formatSize(b.size))"
+                    if let e = b.era, c != .system { line += " · \(eraName(e))" }
+                    if let m = b.modified { line += " · changed \(day(m))" }
+                    if b.protected { line += " · 🔒" }
+                    if let n = b.note, !n.isEmpty { line += " — \(n)" }
                     md.append(line)
                 }
-                if s.books.count > shown.count { md.append("- ……还有 \(s.books.count - shown.count) 项") }
+                if s.books.count > shown.count { md.append("- … and \(s.books.count - shown.count) more") }
             }
         }
         md.append("")
-        md.append("## 说明")
+        md.append("## Notes")
         md.append("")
         catalog.notes.forEach { md.append("- \($0)") }
         return md.joined(separator: "\n")

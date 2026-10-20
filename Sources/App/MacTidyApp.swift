@@ -13,12 +13,12 @@ struct MacTidyApp: App {
         WindowGroup {
             ContentView()
                 .environment(model)
-                .frame(minWidth: 980, minHeight: 620)
+                .frame(minWidth: 1010, minHeight: 620)
         }
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("重新扫描") { model.scan() }
+                Button("Rescan") { model.scan() }
                     .keyboardShortcut("r")
                     .disabled(model.scanning)
             }

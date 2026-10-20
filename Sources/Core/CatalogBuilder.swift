@@ -35,26 +35,27 @@ final class CatalogBuilder {
     }
 
     func build(progress: (String) -> Void) -> Catalog {
-        progress("应用"); addApps()
-        progress("资源库（~/Library 和 /Library）"); addLibrary()
-        progress("开机服务"); addLaunchItems()
-        progress("开发环境"); addDevEnvironments()
-        progress("终端与命令"); addTerminal()
-        progress("个人文件"); addPersonal()
+        progress(L("Apps")); addApps()
+        progress(L("Libraries (~/Library and /Library)")); addLibrary()
+        progress(L("Launch services")); addLaunchItems()
+        progress(L("Developer tools")); addDevEnvironments()
+        progress(L("Terminal and commands")); addTerminal()
+        progress(L("Personal files")); addPersonal()
         addSystem()
         groupOrphans()
-        progress("统计大小和时间"); measure()
+        progress(L("Measuring sizes and dates")); measure()
         finalize()
         foldTinyOrphans()
         return Catalog(generatedAt: ctx.now, machine: Eras.machineDescription(), eras: eras,
-                       shelves: order.compactMap { shelves[$0] }.filter { !$0.books.isEmpty }, notes: notes)
+                       shelves: order.compactMap { shelves[$0] }.filter { !$0.books.isEmpty }, notes: notes,
+                       language: AppLanguage.current)
     }
 
     var notes: [String] {
         [
-            "年代按每台 Mac 在 ~/Library/Keychains 留下的机器文件夹的创建时间推断；一样东西的年代取它最早那个文件的创建时间。",
-            "「搬来后用过」看的是应用的 Spotlight 打开记录和数据目录的修改时间；被其他程序在后台调用的东西可能显示为没用过。",
-            "苹果自带的东西归在「系统」，只做说明，不建议改动。",
+            L("Eras come from the creation dates of the folders each Mac leaves in ~/Library/Keychains; an item belongs to the era of its oldest file."),
+            L("\"Used since arriving\" looks at Spotlight's last-opened dates and when data folders changed; things only run in the background by other programs may look unused."),
+            L("Apple's own things are listed under System for reference only; better left alone."),
         ]
     }
 
@@ -98,14 +99,14 @@ final class CatalogBuilder {
             let id = shelf("app:" + (app.bundleID ?? app.path), system ? .system : .apps, app.name, appSummary(app, info: info))
             appShelfIDs[app.path] = id
             var flags = [String]()
-            if let v = app.version { flags.append("版本 \(v)") }
+            if let v = app.version { flags.append(L("Version \(v)")) }
             if app.isAppStore { flags.append("App Store") }
-            if running.contains(URL(fileURLWithPath: app.path).standardizedFileURL.path) { flags.append("正在运行") }
+            if running.contains(URL(fileURLWithPath: app.path).standardizedFileURL.path) { flags.append(L("Running")) }
             if let arch = archFlag(app.path) { flags.append(arch) }
-            if let n = app.useCount { flags.append("打开过 \(n) 次") }
+            if let n = app.useCount { flags.append(L("Opened \(n) times")) }
             update(id) {
                 $0.lastUsed = app.lastUsed
-                $0.lastUsedSource = "Spotlight 打开记录"
+                $0.lastUsedSource = L("Spotlight last-opened date")
                 $0.flags = flags
             }
             add(book(app.path, .program), to: id)
@@ -115,8 +116,12 @@ final class CatalogBuilder {
     private func appSummary(_ app: AppInfo, info: [String: Any]) -> String {
         let kind = (info["LSApplicationCategoryType"] as? String).flatMap { appCategoryNames[$0] }
         let vendor = (info["NSHumanReadableCopyright"] as? String).flatMap(vendorName)
-        let parts = [kind, vendor.map { "出自 \($0)" }].compactMap { $0 }
-        return parts.isEmpty ? "应用" : parts.joined(separator: "，")
+        switch (kind, vendor) {
+        case let (kind?, vendor?): return L("\(kind), by \(vendor)")
+        case let (kind?, nil): return kind
+        case let (nil, vendor?): return L("By \(vendor)")
+        default: return L("App")
+        }
     }
 
     /// "Copyright © 2012-2024 Tencent. All Rights Reserved." → "Tencent"
@@ -133,7 +138,7 @@ final class CatalogBuilder {
         guard let archs = Bundle(path: path)?.executableArchitectures?.map(\.intValue), !archs.isEmpty else { return nil }
         let arm = archs.contains(NSBundleExecutableArchitectureARM64)
         let intel = archs.contains(NSBundleExecutableArchitectureX86_64)
-        return intel && !arm ? "仅 Intel（靠 Rosetta 转译运行）" : nil
+        return intel && !arm ? L("Intel only (runs under Rosetta)") : nil
     }
 
     // MARK: ~/Library and /Library
@@ -154,7 +159,7 @@ final class CatalogBuilder {
             ("Audio/Plug-Ins/HAL", .plugin), ("Audio/Plug-Ins/Components", .plugin),
         ]
         for (rel, kind) in user { scanLocation(home + "/Library/" + rel, kind: kind, sharedNote: nil) }
-        for (rel, kind) in shared { scanLocation("/Library/" + rel, kind: kind, sharedNote: "所有用户共用，删除需要管理员权限") }
+        for (rel, kind) in shared { scanLocation("/Library/" + rel, kind: kind, sharedNote: L("Shared by all users; removing it needs an administrator")) }
     }
 
     private func scanLocation(_ dir: String, kind: BookKind, sharedNote: String?) {
@@ -182,7 +187,7 @@ final class CatalogBuilder {
         case .tool(let t):
             add(b, to: toolShelf(t))
         case .command(let c):
-            add(b, to: shelf("cmd:" + c, .terminal, "\(c)（命令行工具）", "命令 \(c) 的数据和配置"))
+            add(b, to: commandShelf(c))
         case .orphan(let alias, let n):
             orphanPool.append(OrphanEntry(id: id, isBundleID: looksLikeBundleID(id), alias: alias, note: n ?? note, book: b))
         }
@@ -216,7 +221,7 @@ final class CatalogBuilder {
         let lower = id.lowercased()
         if let tool = toolchain(named: entry) ?? toolchain(named: id) { return .tool(tool) }
         if let alias = libraryAlias(for: id) {
-            if alias.owner.hasPrefix("macOS") { return .apple }
+            if alias.apple { return .apple }
             if let app = findApp(alias.apps) { return .app(app) }
             if let cmd = alias.commands.first(where: { inv.commands[$0] != nil }) {
                 return toolchain(named: cmd).map(Owner.tool) ?? .command(cmd)
@@ -230,7 +235,7 @@ final class CatalogBuilder {
                 let helperWords = ["keystone", "update", "helper", "agent", "launcher", "daemon", "crashpad", "installer", "ksfetch"]
                 let looksHelper = [.helper, .launch].contains(kind) || helperWords.contains { lower.contains($0) }
                 if sameProduct || (looksHelper && vendorAppCount(id) == 1) { return .app(app) }
-                return .orphan(alias: nil, note: "同厂商的 \(app.name) 还装着，但这个看起来是另一款产品")
+                return .orphan(alias: nil, note: L("\(app.name), from the same vendor, is installed, but this looks like a different product"))
             }
             if let last = lower.split(separator: ".").last, last.count >= 3, let cmd = userCommand(String(last)) {
                 return toolchain(named: cmd).map(Owner.tool) ?? .command(cmd)
@@ -309,7 +314,7 @@ final class CatalogBuilder {
         let items = Scanners(ctx: ctx).launchItems()
         for item in items {
             guard let path = item.path else { continue }
-            let note = [item.detail, item.verdict == .keep ? nil : item.reason].compactMap { $0 }.joined(separator: "；")
+            let note = item.verdict == .keep ? item.detail : L("\(item.detail); \(item.reason)")
             let b = book(path, .launch, note: note, size: 0)
             if let owner = item.owner, let app = inv.apps.first(where: { $0.name == owner }) {
                 add(b, to: appShelfID(app))
@@ -325,23 +330,31 @@ final class CatalogBuilder {
     private func appleShelf(for kind: BookKind) -> String {
         switch kind {
         case .cache, .logs, .windowState, .webData:
-            return shelf("apple:cache", .system, "系统和自带应用的缓存与日志", "macOS 自动生成和清理，不需要手动处理")
+            return shelf("apple:cache", .system, L("Caches and logs of macOS and its apps"), L("Created and cleaned up by macOS; nothing to do by hand"))
         case .preferences:
-            return shelf("apple:prefs", .system, "系统和自带应用的设置", "系统设置、访达、程序坞等的偏好设置")
+            return shelf("apple:prefs", .system, L("Settings of macOS and its apps"), L("Preferences of System Settings, Finder, the Dock and more"))
         default:
-            return shelf("apple:data", .system, "系统和自带应用的数据", "照片、信息、邮件、iCloud 等苹果自带功能的数据")
+            return appleDataShelf()
         }
     }
 
+    func appleDataShelf() -> String {
+        shelf("apple:data", .system, L("Data of macOS and its apps"), L("Photos, Messages, Mail, iCloud and other built-in features"))
+    }
+
+    func commandShelf(_ command: String) -> String {
+        shelf("cmd:" + command, .terminal, L("\(command) (command-line tool)"), L("Data and settings of the \(command) command"))
+    }
+
     private func addSystem() {
-        let core = shelf("apple:core", .system, "macOS 系统本体", "装在只读、带加密签名的系统盘上，任何人（包括 root）都改不了")
+        let core = shelf("apple:core", .system, L("macOS itself"), L("Lives on a read-only, cryptographically sealed volume that nobody, not even root, can change"))
         for p in ["/System", "/bin", "/sbin", "/usr", "/private/etc"] {
             add(Book(path: p, kind: .program, size: nil, created: nil, note: nil, protected: true), to: core)
         }
-        let apps = shelf("apple:apps", .system, "macOS 自带应用", "\(inv.systemApps.count) 个苹果自带应用，随系统更新")
+        let apps = shelf("apple:apps", .system, L("Apps that come with macOS"), L("\(inv.systemApps.count) apps from Apple, updated with the system"))
         add(Book(path: "/System/Applications", kind: .program, size: nil, created: nil, note: nil, protected: true), to: apps)
-        let vm = shelf("apple:vm", .system, "虚拟内存和系统临时文件", "系统运行时自动管理")
-        add(Book(path: "/private/var", kind: .cache, size: nil, created: nil, note: "系统日志、临时文件、虚拟内存交换文件", protected: true), to: vm)
+        let vm = shelf("apple:vm", .system, L("Virtual memory and system temporary files"), L("Managed by the system while it runs"))
+        add(Book(path: "/private/var", kind: .cache, size: nil, created: nil, note: L("System logs, temporary files and swap"), protected: true), to: vm)
     }
 
     // MARK: Orphans
@@ -382,9 +395,10 @@ final class CatalogBuilder {
             let title = first.alias ?? (first.isBundleID ? entries.map(\.id).min(by: { $0.count < $1.count })! : first.id)
             let note = entries.compactMap(\.note).first
             let electron = entries.contains { exists($0.book.path + "/Code Cache") && exists($0.book.path + "/Cookies") }
-            var summary = first.alias != nil ? "\(first.alias!) 留下的东西，对应的应用已经不在了"
-                : first.isBundleID ? "按标识找不到已安装的应用，多半是卸载后留下的" : "认不出是哪个应用或工具的"
-            if electron { summary += "；看结构是某个 Electron 应用的数据" }
+            var summary = first.alias.map { L("Left behind by \($0); the app is gone") }
+                ?? (first.isBundleID ? L("No installed app has this identifier; most likely left over from an uninstall")
+                                     : L("Can't tell which app or tool this belongs to"))
+            if electron { summary += L("; its layout looks like data of an Electron app") }
             let id = shelf("orphan:" + k, .orphans, title, summary)
             update(id) { $0.reason = note }
             entries.forEach { add($0.book, to: id) }
@@ -399,9 +413,10 @@ final class CatalogBuilder {
         guard tiny.count > 1 else { return }
         let list = tiny.compactMap { shelves.removeValue(forKey: $0) }
         order.removeAll { tiny.contains($0) }
-        var s = Shelf(id: "orphan:tiny", category: .orphans, title: "零碎的小残留（\(list.count) 组）",
-                      summary: "都不到 100 KB 的卸载残留：\(list.map(\.title).prefix(12).joined(separator: "、"))\(list.count > 12 ? " 等" : "")")
-        s.books = list.flatMap { shelf in shelf.books.map { var b = $0; b.note = [shelf.title, b.note].compactMap { $0 }.joined(separator: "：") ; return b } }
+        let names = ListFormatter.localizedString(byJoining: Array(list.map(\.title).prefix(12)))
+        var s = Shelf(id: "orphan:tiny", category: .orphans, title: L("Small leftovers (\(list.count) groups)"),
+                      summary: list.count > 12 ? L("Leftovers under 100 KB each: \(names) and more") : L("Leftovers under 100 KB each: \(names)"))
+        s.books = list.flatMap { shelf in shelf.books.map { var b = $0; b.note = [shelf.title, b.note].compactMap { $0 }.joined(separator: " — "); return b } }
         s.size = list.map(\.size).reduce(0, +)
         s.firstSeen = list.compactMap(\.firstSeen).min()
         s.era = list.compactMap(\.era).min()
@@ -498,15 +513,15 @@ final class CatalogBuilder {
 }
 
 let appCategoryNames: [String: String] = [
-    "public.app-category.business": "商务", "public.app-category.developer-tools": "开发工具",
-    "public.app-category.education": "教育", "public.app-category.entertainment": "娱乐",
-    "public.app-category.finance": "财务", "public.app-category.games": "游戏",
-    "public.app-category.graphics-design": "图形设计", "public.app-category.healthcare-fitness": "健康健身",
-    "public.app-category.lifestyle": "生活", "public.app-category.medical": "医疗",
-    "public.app-category.music": "音乐", "public.app-category.news": "新闻",
-    "public.app-category.photography": "摄影", "public.app-category.productivity": "效率工具",
-    "public.app-category.reference": "参考资料", "public.app-category.social-networking": "社交",
-    "public.app-category.sports": "体育", "public.app-category.travel": "旅行",
-    "public.app-category.utilities": "实用工具", "public.app-category.video": "视频",
-    "public.app-category.weather": "天气",
+    "public.app-category.business": L("Business"), "public.app-category.developer-tools": L("Developer tools"),
+    "public.app-category.education": L("Education"), "public.app-category.entertainment": L("Entertainment"),
+    "public.app-category.finance": L("Finance"), "public.app-category.games": L("Games"),
+    "public.app-category.graphics-design": L("Graphics & design"), "public.app-category.healthcare-fitness": L("Health & fitness"),
+    "public.app-category.lifestyle": L("Lifestyle"), "public.app-category.medical": L("Medical"),
+    "public.app-category.music": L("Music"), "public.app-category.news": L("News"),
+    "public.app-category.photography": L("Photography"), "public.app-category.productivity": L("Productivity"),
+    "public.app-category.reference": L("Reference"), "public.app-category.social-networking": L("Social networking"),
+    "public.app-category.sports": L("Sports"), "public.app-category.travel": L("Travel"),
+    "public.app-category.utilities": L("Utilities"), "public.app-category.video": L("Video"),
+    "public.app-category.weather": L("Weather"),
 ]

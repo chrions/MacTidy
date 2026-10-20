@@ -15,12 +15,13 @@ private let mediaBundles: Set<String> = ["photoslibrary", "photolibrary", "fcpbu
 extension CatalogBuilder {
     /// Personal files in the home folder: each top-level item, plus the contents of the standard folders.
     func addPersonal() {
-        let standard: [(String, String)] = [("Desktop", "桌面"), ("Documents", "文稿"), ("Downloads", "下载"), ("Movies", "影片"),
-                                            ("Pictures", "图片"), ("Music", "音乐")]
+        let standard: [(String, String)] = ["Desktop", "Documents", "Downloads", "Movies", "Pictures", "Music"].map {
+            ($0, fm.displayName(atPath: home + "/" + $0))
+        }
         let skip = Set(["Library", "Applications", "Public", "go", "bin", ColdStorage.folderName] + standard.map(\.0))
         let pathDirs = Set(inv.pathDirs)
         for name in children(home) where !name.hasPrefix(".") && !skip.contains(name) && !pathDirs.contains(home + "/" + name) {
-            addPersonal(home + "/" + name, location: "主目录")
+            addPersonal(home + "/" + name, location: L("the home folder"))
         }
         for (folder, label) in standard {
             for name in children(home + "/" + folder) where !name.hasPrefix(".") && name != "Icon\r" {
@@ -33,21 +34,21 @@ extension CatalogBuilder {
         let name = (path as NSString).lastPathComponent
         let ext = (name as NSString).pathExtension.lowercased()
         if looksSensitive(name) {
-            add(book(path, .secret, note: "放在\(location)；从文件名看像是私钥、证书或密码（没有读取内容）"),
-                to: shelf("mine:secret", .personal, "散落的密钥和密码", "文件名像私钥、证书或密码的文件，建议集中放到安全的地方"))
+            add(book(path, .secret, note: L("In \(location); the name looks like a private key, certificate or password (contents not read)")),
+                to: shelf("mine:secret", .personal, L("Stray keys and passwords"), L("Files named like private keys, certificates or passwords; better kept together somewhere safe")))
             return
         }
         let kind = classify(path, ext: ext)
         let (id, title, summary): (String, String, String)
         switch kind {
-        case .project: (id, title, summary) = ("mine:project", "代码项目", "带有 Git、package.json、go.mod 等标记的项目文件夹")
-        case .media: (id, title, summary) = ("mine:media", "照片和视频", "照片、视频、音乐和媒体资料库")
-        case .document: (id, title, summary) = ("mine:document", "文档和表格", "PDF、Office 文档、表格、文本和导出的数据")
-        case .archive: (id, title, summary) = ("mine:archive", "安装包和压缩包", "dmg / pkg 安装包和各种压缩包，装完或解压后通常可以删")
-        case .folder: (id, title, summary) = ("mine:folder", "其他文件夹", "看不出类型的文件夹")
-        default: (id, title, summary) = ("mine:file", "其他文件", "脚本、配置片段等零散文件")
+        case .project: (id, title, summary) = ("mine:project", L("Code projects"), L("Project folders marked by Git, package.json, go.mod and the like"))
+        case .media: (id, title, summary) = ("mine:media", L("Photos & videos"), L("Photos, videos, music and media libraries"))
+        case .document: (id, title, summary) = ("mine:document", L("Documents & spreadsheets"), L("PDFs, Office documents, spreadsheets, text and exported data"))
+        case .archive: (id, title, summary) = ("mine:archive", L("Installers & archives"), L("dmg / pkg installers and archives; usually safe to delete once installed or extracted"))
+        case .folder: (id, title, summary) = ("mine:folder", L("Other folders"), L("Folders of no particular type"))
+        default: (id, title, summary) = ("mine:file", L("Other files"), L("Scripts, config snippets and other loose files"))
         }
-        var b = book(path, kind, note: "放在\(location)")
+        var b = book(path, kind, note: L("In \(location)"))
         b.lastUsed = spotlightLastUsed(path)
         add(b, to: shelf(id, .personal, title, summary))
     }

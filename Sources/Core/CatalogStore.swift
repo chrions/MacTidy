@@ -6,6 +6,8 @@ enum CatalogStore {
     static var directory: String { home + "/Library/Application Support/MacTidy" }
     static var path: String { directory + "/catalog.json" }
 
+    static var exists: Bool { fm.fileExists(atPath: path) }
+
     static func load() -> Catalog? {
         guard let data = fm.contents(atPath: path) else { return nil }
         let dec = JSONDecoder()
@@ -34,7 +36,7 @@ enum CatalogStore {
 
     /// Read-only scan of the whole Mac. Takes a minute or two, mostly measuring sizes.
     static func scan(progress: (String) -> Void) -> Catalog {
-        progress("盘点应用和命令")
+        progress(L("Listing apps and commands"))
         return CatalogBuilder(ctx: makeContext()).build(progress: progress)
     }
 }

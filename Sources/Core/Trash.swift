@@ -36,13 +36,13 @@ enum Trash {
 
     /// Why this book can't be moved away (to the Trash or cold storage), or nil if it can.
     static func refusal(_ book: Book, in shelf: Shelf) -> String? {
-        if shelf.category == .system { return "macOS 自带的东西不动" }
+        if shelf.category == .system { return L("Part of macOS; left alone") }
         let p = book.path
-        if containers.contains(p) { return "这是存放很多东西的文件夹，请处理里面具体的项" }
-        if untouchable.contains(where: { p == $0 || p.hasPrefix($0 + "/") }) { return "iCloud、钥匙串、邮件等数据不在这里处理" }
-        if (try? fm.attributesOfItem(atPath: p)) == nil { return "已经不在了" }
+        if containers.contains(p) { return L("This folder holds many other things; handle the items inside instead") }
+        if untouchable.contains(where: { p == $0 || p.hasPrefix($0 + "/") }) { return L("iCloud, Keychain and Mail data aren’t handled here") }
+        if (try? fm.attributesOfItem(atPath: p)) == nil { return L("It’s no longer there") }
         let parent = (p as NSString).deletingLastPathComponent
-        if book.protected || !fm.isWritableFile(atPath: parent) { return "需要管理员权限，请在访达里处理" }
+        if book.protected || !fm.isWritableFile(atPath: parent) { return L("Needs administrator rights; handle it in Finder") }
         return nil
     }
 
@@ -61,7 +61,7 @@ enum Trash {
                 var result: NSURL?
                 try fm.trashItem(at: URL(fileURLWithPath: b.path), resultingItemURL: &result)
                 moved.append(TrashRecord(path: b.path, trashedTo: result?.path ?? "", date: Date(), size: b.size,
-                                         shelf: shelf?.title ?? "冷藏区", book: b, owner: owner))
+                                         shelf: shelf?.title ?? L("Cold Storage"), book: b, owner: owner))
             } catch {
                 failed.append((b.path, describe(error)))
             }
@@ -81,13 +81,13 @@ enum Trash {
         var failed = [(path: String, reason: String)]()
         var done = Set<String>()
         for r in records {
-            if (try? fm.attributesOfItem(atPath: r.path)) != nil { failed.append((r.path, "原位置已有同名的东西")); continue }
+            if (try? fm.attributesOfItem(atPath: r.path)) != nil { failed.append((r.path, L("Something with the same name is already at the original location"))); continue }
             do {
                 try fm.createDirectory(atPath: (r.path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
                 try fm.moveItem(atPath: r.trashedTo, toPath: r.path)
                 done.insert(r.trashedTo)
             } catch {
-                failed.append((r.path, fm.fileExists(atPath: r.trashedTo) ? describe(error) : "废纸篓里已经找不到了"))
+                failed.append((r.path, fm.fileExists(atPath: r.trashedTo) ? describe(error) : L("No longer in the Trash")))
             }
         }
         writeLog(readLog().filter { !done.contains($0.trashedTo) })
@@ -97,7 +97,7 @@ enum Trash {
     static func describe(_ error: Error) -> String {
         let e = error as NSError
         if e.domain == NSCocoaErrorDomain, [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(e.code) {
-            return "没有权限，请在访达里处理"
+            return L("No permission; handle it in Finder")
         }
         return e.localizedDescription
     }

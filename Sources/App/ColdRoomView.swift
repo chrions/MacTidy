@@ -22,12 +22,12 @@ struct ColdRoomView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("冷藏区").font(.system(size: 34, weight: .semibold))
-            Text("拿不准的东西先挪到这里，原来的位置都记着，随时能放回。冷藏半年都没想起来的，一般就可以放心删了。")
+            Text("Cold Storage").font(.system(size: 34, weight: .semibold))
+            Text("Things you're unsure about wait here. Where they came from is recorded, so they can go back anytime. Anything you haven't missed for half a year can usually be deleted.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Text(Fmt.path(ColdStorage.root)).font(.system(.callout, design: .monospaced)).foregroundStyle(.secondary)
-                Button("在访达中显示") { model.openColdRoom() }.buttonStyle(.borderless).foregroundStyle(.primary).underline()
+                Button("Show in Finder") { model.openColdRoom() }.buttonStyle(.borderless).foregroundStyle(.primary).underline()
             }
             .padding(.top, 2)
         }
@@ -36,11 +36,12 @@ struct ColdRoomView: View {
     private var frozen: some View {
         VStack(alignment: .leading, spacing: 14) {
             let stale = model.coldBatches.filter(\.isStale)
-            SectionTitle(title: "冷藏中",
+            SectionTitle(title: L("Frozen"),
                          subtitle: model.coldBatches.isEmpty ? nil
-                         : "\(model.coldBatches.count) 批 · \(Fmt.size(model.coldSize))" + (stale.isEmpty ? "" : "，其中 \(stale.count) 批已超过半年"))
+                         : stale.isEmpty ? L("\(model.coldBatches.count) batches · \(Fmt.size(model.coldSize))")
+                         : L("\(model.coldBatches.count) batches · \(Fmt.size(model.coldSize)), \(stale.count) older than half a year"))
             if model.coldBatches.isEmpty {
-                Text("还没有冷藏的东西。在任意书架里点「冷藏」就会挪到这里。").foregroundStyle(.secondary)
+                Text("Nothing frozen yet. Click Freeze on any shelf to move things here.").foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(model.coldBatches.enumerated()), id: \.element.id) { i, b in
@@ -54,12 +55,12 @@ struct ColdRoomView: View {
 
     private var trashed: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "废纸篓里的", subtitle: "MacTidy 移到废纸篓、还没清倒的东西。清倒废纸篓后就找不回了。")
+            SectionTitle(title: L("In the Trash"), subtitle: L("What MacTidy moved to the Trash that hasn't been emptied yet. Once the Trash is emptied, it's gone."))
             VStack(spacing: 0) {
                 ForEach(Array(model.trashed.enumerated()), id: \.element.trashedTo) { i, r in
                     if i > 0 { Divider() }
-                    ItemRow(title: r.shelf, path: r.path, detail: "扔于 \(Fmt.day(r.date))", size: r.size) {
-                        Button("放回") { model.restore([r]) }
+                    ItemRow(title: r.shelf, path: r.path, detail: L("Trashed \(Fmt.day(r.date))"), size: r.size) {
+                        Button("Put Back") { model.restore([r]) }
                     }
                 }
             }
@@ -68,21 +69,21 @@ struct ColdRoomView: View {
 
     private var kept: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "已保留", subtitle: "这些东西不会再标「没用过」。")
+            SectionTitle(title: L("Kept"), subtitle: L("These are no longer marked as unused."))
             VStack(spacing: 0) {
                 let shelves = model.decisions.keptShelves.sorted()
                 let paths = model.decisions.keptPaths.sorted()
                 ForEach(Array(shelves.enumerated()), id: \.element) { i, id in
                     if i > 0 { Divider() }
                     let s = model.shelf(id)
-                    ItemRow(title: s?.title ?? id, path: nil, detail: s.map { "整个书架 · \($0.category.rawValue)" } ?? "整个书架", size: s?.size) {
-                        Button("取消保留") { model.unkeep(shelfID: id) }
+                    ItemRow(title: s?.title ?? id, path: nil, detail: s.map { L("Whole shelf · \($0.category.name)") } ?? L("Whole shelf"), size: s?.size) {
+                        Button("Unkeep") { model.unkeep(shelfID: id) }
                     }
                 }
                 ForEach(Array(paths.enumerated()), id: \.element) { i, path in
                     if i > 0 || !shelves.isEmpty { Divider() }
                     ItemRow(title: (path as NSString).lastPathComponent, path: path, detail: nil, size: nil) {
-                        Button("取消保留") { model.unkeep(path: path) }
+                        Button("Unkeep") { model.unkeep(path: path) }
                     }
                 }
             }
@@ -106,15 +107,15 @@ private struct BatchRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(batch.shelf.title).font(.body.weight(.medium))
-                        if batch.isStale { Tag("超过半年，可以删了", filled: true) }
+                        if batch.isStale { Tag(L("Over half a year; can go"), filled: true) }
                     }
-                    Text("\(batch.shelf.category.rawValue) · \(batch.items.count) 项 · 冷藏于 \(Fmt.day(batch.date))，已 \(batch.days) 天")
+                    Text(L("\(batch.shelf.category.name) · \(batch.items.count) items · frozen \(Fmt.day(batch.date)), \(batch.days) days ago"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 12)
                 Text(Fmt.size(batch.size)).monospacedDigit().foregroundStyle(.secondary)
-                Button("放回") { model.thaw(batch) }
-                Button("移到废纸篓") { model.request(.discard(batch), batch.items.map(\.book), in: batch.shelf) }
+                Button("Put Back") { model.thaw(batch) }
+                Button("Move to Trash…") { model.request(.discard(batch), batch.items.map(\.book), in: batch.shelf) }
             }
             if expanded {
                 VStack(alignment: .leading, spacing: 4) {

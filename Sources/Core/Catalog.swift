@@ -3,49 +3,92 @@ import IOKit
 
 /// Top level of the library catalog.
 enum Category: String, Codable, CaseIterable {
-    case system = "系统"
-    case apps = "应用"
-    case dev = "开发环境"
-    case terminal = "终端与命令"
-    case personal = "我的文件"
-    case orphans = "无主之物"
+    case system, apps, dev, terminal, personal, orphans
+
+    var name: String {
+        switch self {
+        case .system: return L("System")
+        case .apps: return L("Apps")
+        case .dev: return L("Development")
+        case .terminal: return L("Terminal")
+        case .personal: return L("My Files")
+        case .orphans: return L("Orphans")
+        }
+    }
 
     var blurb: String {
         switch self {
-        case .system: return "macOS 自带的东西，只看不动"
-        case .apps: return "你安装的应用，以及它们散落在各处的数据"
-        case .dev: return "Homebrew、Node、Go、Python 等开发工具链"
-        case .terminal: return "shell 配置、命令行工具、密钥和历史记录"
-        case .personal: return "你自己放进来的照片、项目、文档和下载"
-        case .orphans: return "主人已经不在了，或者认不出是谁的"
+        case .system: return L("Part of macOS. Shown, never touched.")
+        case .apps: return L("Apps you installed, and the data they scattered around")
+        case .dev: return L("Homebrew, Node, Go, Python and other toolchains")
+        case .terminal: return L("Shell config, command-line tools, keys and histories")
+        case .personal: return L("Photos, projects, documents and downloads you put here yourself")
+        case .orphans: return L("The owner is gone, or can't be recognised")
         }
     }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let value = Category(rawValue: raw) ?? Category.legacy[raw] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown category \(raw)"))
+        }
+        self = value
+    }
+
+    /// Raw values written by version 0.2, which stored the Chinese names.
+    private static let legacy: [String: Category] = [
+        "系统": .system, "应用": .apps, "开发环境": .dev, "终端与命令": .terminal, "我的文件": .personal, "无主之物": .orphans,
+    ]
 }
 
-enum BookKind: String, Codable {
-    case program = "程序本体"
-    case userData = "应用数据"
-    case sandbox = "沙盒数据"
-    case shared = "共享数据"
-    case cache = "缓存"
-    case preferences = "偏好设置"
-    case logs = "日志"
-    case windowState = "窗口状态"
-    case webData = "网页数据"
-    case launch = "开机服务"
-    case helper = "帮助程序"
-    case plugin = "插件扩展"
-    case command = "命令"
-    case config = "配置"
-    case secret = "密钥与凭据"
-    case history = "历史记录"
-    case toolchain = "工具链"
-    case project = "代码项目"
-    case media = "照片和视频"
-    case document = "文档"
-    case archive = "安装包和压缩包"
-    case folder = "文件夹"
-    case file = "文件"
+enum BookKind: String, Codable, CaseIterable {
+    case program, userData, sandbox, shared, cache, preferences, logs, windowState, webData, launch, helper, plugin,
+         command, config, secret, history, toolchain, project, media, document, archive, folder, file
+
+    var name: String {
+        switch self {
+        case .program: return L("Program")
+        case .userData: return L("App data")
+        case .sandbox: return L("Sandbox data")
+        case .shared: return L("Shared data")
+        case .cache: return L("Cache")
+        case .preferences: return L("Preferences")
+        case .logs: return L("Logs")
+        case .windowState: return L("Window state")
+        case .webData: return L("Web data")
+        case .launch: return L("Launch service")
+        case .helper: return L("Helper")
+        case .plugin: return L("Plug-in")
+        case .command: return L("Command")
+        case .config: return L("Configuration")
+        case .secret: return L("Keys & credentials")
+        case .history: return L("History")
+        case .toolchain: return L("Toolchain")
+        case .project: return L("Code project")
+        case .media: return L("Photos & videos")
+        case .document: return L("Document")
+        case .archive: return L("Installer or archive")
+        case .folder: return L("Folder")
+        case .file: return L("File")
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let value = BookKind(rawValue: raw) ?? BookKind.legacy[raw] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown kind \(raw)"))
+        }
+        self = value
+    }
+
+    /// Raw values written by version 0.2, which stored the Chinese names.
+    private static let legacy: [String: BookKind] = [
+        "程序本体": .program, "应用数据": .userData, "沙盒数据": .sandbox, "共享数据": .shared, "缓存": .cache,
+        "偏好设置": .preferences, "日志": .logs, "窗口状态": .windowState, "网页数据": .webData, "开机服务": .launch,
+        "帮助程序": .helper, "插件扩展": .plugin, "命令": .command, "配置": .config, "密钥与凭据": .secret,
+        "历史记录": .history, "工具链": .toolchain, "代码项目": .project, "照片和视频": .media, "文档": .document,
+        "安装包和压缩包": .archive, "文件夹": .folder, "文件": .file,
+    ]
 }
 
 /// One period of the user's history: the time a particular Mac was in use.
@@ -114,6 +157,8 @@ struct Catalog: Codable {
     var eras: [Era]
     var shelves: [Shelf]
     var notes: [String]
+    /// Interface language at scan time; titles, summaries and notes are written in it.
+    var language: String?
 }
 
 // MARK: - Eras
@@ -175,7 +220,7 @@ enum Eras {
            !name.isEmpty {
             return name
         }
-        return [sysctlString("hw.model"), sysctlString("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: "，")
+        return [sysctlString("hw.model"), sysctlString("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: ", ")
     }
 
     /// Key for the period before the first known Mac in eras.json.
@@ -188,9 +233,9 @@ enum Eras {
         return eras.map { era in
             var era = era
             if era.index == 0 {
-                era.name = names[beforeKey] ?? (machines > 1 ? "第一台 Mac 之前" : "这台 Mac 之前")
+                era.name = names[beforeKey] ?? (machines > 1 ? L("Before the first Mac") : L("Before this Mac"))
             } else if let id = era.machineID {
-                era.name = names[id] ?? (era.isCurrent ? machineDescription() : "第 \(era.index) 台 Mac")
+                era.name = names[id] ?? (era.isCurrent ? machineDescription() : L("Mac #\(era.index)"))
             }
             return era
         }

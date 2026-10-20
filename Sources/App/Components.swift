@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Small outlined label, e.g. "未用" or "仅 Intel".
+/// Small outlined label, e.g. "Unused" or "Intel only".
 struct Tag: View {
     let text: String
     var filled = false
