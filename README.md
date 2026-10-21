@@ -18,6 +18,8 @@ Things you're unsure about can go to **cold storage** first: they're moved aside
 
 ![A shelf: everything that belongs to the Go toolchain, where each part came from, and what hasn't been used](docs/screenshots/shelf.png)
 
+![Freezing an unused item, then putting it back from cold storage in one click](docs/screenshots/freeze-and-put-back.gif)
+
 ## Features
 
 - **Shelves by category**: System, Apps, Development (Homebrew, Node, Go, Python, Ruby, Java, Rust…), Terminal (shell config, command-line tools, keys, histories), My Files, and Orphans.

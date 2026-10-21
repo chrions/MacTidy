@@ -18,6 +18,8 @@
 
 ![书架：Go 工具链的所有组成部分、各自从哪台 Mac 来、哪些没用过](docs/screenshots/shelf.png)
 
+![冷藏一项没用过的东西，再从冷藏区一键放回](docs/screenshots/freeze-and-put-back.gif)
+
 ## 功能
 
 - **按类别分书架**：系统、应用、开发环境（Homebrew、Node、Go、Python、Ruby、Java、Rust 等）、终端与命令（Shell 配置、命令行工具、密钥、历史记录）、我的文件、无主之物。

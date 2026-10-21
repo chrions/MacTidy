@@ -21,6 +21,10 @@ enum Snapshot {
             try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
             return
         }
+        if let shelfID = d.string(forKey: "demo") {
+            await demo(model, shelfID: shelfID)
+            return
+        }
         guard let path = d.string(forKey: "snapshot") else { return }
         for _ in 0..<600 where model.scanning { try? await Task.sleep(for: .milliseconds(500)) }
         if let page = d.string(forKey: "page") {
@@ -47,5 +51,45 @@ enum Snapshot {
               let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return }
         frame.cacheDisplay(in: frame.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+
+    /// `-demo SHELF_ID` plays a scripted walkthrough for a screen recording, in full screen: freeze the
+    /// shelf's first unused item, put it back from cold storage, and return to the shelf. It touches
+    /// /tmp/mactidy-demo-ready once in full screen, waits for /tmp/mactidy-demo-go, touches
+    /// /tmp/mactidy-demo-done at the end, then leaves full screen.
+    @MainActor
+    private static func demo(_ model: AppModel, shelfID: String) async {
+        func pause(_ s: Double) async { try? await Task.sleep(for: .seconds(s)) }
+        let fm = FileManager.default
+        for _ in 0..<600 where model.scanning { await pause(0.5) }
+        await pause(1)
+        guard let window = NSApp.windows.first(where: \.isVisible), let shelf = model.shelf(shelfID),
+              let book = model.movable(shelf, onlyUnused: true).first else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        model.onlyUnused = false
+        model.sidebar = .category(shelf.category)
+        model.selectedShelf = shelf.id
+        if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        await pause(2.5)
+        fm.createFile(atPath: "/tmp/mactidy-demo-ready", contents: nil)
+
+        while !fm.fileExists(atPath: "/tmp/mactidy-demo-go") { await pause(0.2) }
+        await pause(2.5)
+        model.request(.freeze, [book], in: shelf)
+        await pause(3)
+        model.confirm()
+        await pause(3)
+        guard case .freeze(let batch)? = model.outcome?.undo else { return }
+        model.sidebar = .coldRoom
+        await pause(3)
+        model.thaw(batch)
+        await pause(3)
+        model.sidebar = .category(shelf.category)
+        model.selectedShelf = shelf.id
+        await pause(3.5)
+        fm.createFile(atPath: "/tmp/mactidy-demo-done", contents: nil)
+        await pause(1)
+        if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
     }
 }
