@@ -18,7 +18,7 @@
 
 ![书架：Go 工具链的所有组成部分、各自从哪台 Mac 来、哪些没用过](docs/screenshots/shelf.png)
 
-![冷藏一项没用过的东西，再从冷藏区一键放回](docs/screenshots/freeze-and-put-back.gif)
+![冷藏一项没用过的东西，再从冷藏区一键放回](docs/screenshots/freeze-and-put-back.zh-CN.gif)
 
 ## 功能
 
