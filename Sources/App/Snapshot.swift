@@ -41,6 +41,10 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1))
             openSettings()
         }
+        if let window = NSApp.windows.first(where: \.isVisible), window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+            try? await Task.sleep(for: .seconds(1.5))
+        }
         if let size = d.string(forKey: "size")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2 {
             NSApp.windows.first(where: \.isVisible)?.setContentSize(NSSize(width: size[0], height: size[1]))
         }
