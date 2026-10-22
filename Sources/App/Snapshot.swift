@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Development aid: `open MacTidy.app --args -snapshot /tmp/a.png [-page apps|cold] [-shelf ID] [-unused YES] [-size 1280x800] [-AppleLanguages '(ja)']`
+/// Development aid: `open MacTidy.app --args -snapshot /tmp/a.png [-page apps|cold] [-shelf ID] [-unused YES] [-era N] [-size 1280x800] [-AppleLanguages '(ja)']`
 /// renders the window into a PNG, which works without Screen Recording permission.
 enum Snapshot {
     @MainActor
@@ -32,6 +32,7 @@ enum Snapshot {
         }
         if let shelf = d.string(forKey: "shelf") { model.selectedShelf = shelf }
         if d.bool(forKey: "unused") { model.onlyUnused = true }
+        if d.object(forKey: "era") != nil { model.eraFilter = d.integer(forKey: "era") }
         if d.bool(forKey: "ai"), let s = model.shelf(model.selectedShelf) {
             model.recognise([s], force: true)
             for _ in 0..<60 where model.aiProgress != nil { try? await Task.sleep(for: .milliseconds(500)) }
